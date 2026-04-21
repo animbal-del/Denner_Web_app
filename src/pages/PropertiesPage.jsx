@@ -80,6 +80,7 @@ export default function PropertiesPage() {
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [search, setSearch] = useState('');
   const [budgetRange, setBudgetRange] = useState({ min: 0, max: 0 });
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const cities = useMemo(
     () => [...new Set(items.map((item) => item.city).filter(Boolean))].sort(),
@@ -303,7 +304,8 @@ export default function PropertiesPage() {
           <p className="listing-header-sub">See real listings first. Log in only when you want to go deeper.</p>
         </div>
 
-        <div className="listing-controls card-surface">
+        <div className="listing-controls">
+          {/* ── Search bar + count + toggle ───────────────── */}
           <div className="filters-topbar">
             <div className="search-shell">
               <span className="search-prefix">Search</span>
@@ -311,29 +313,59 @@ export default function PropertiesPage() {
                 className="search-input"
                 id="property-search"
                 name="property-search"
-                placeholder="Society, locality, city or furnishing"
+                placeholder="Society, locality, city…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
+              {search && (
+                <button className="search-clear" onClick={() => setSearch('')} aria-label="Clear search">×</button>
+              )}
             </div>
 
             <div className="toolbar-actions">
               <div className="results-chip">{filtered.length} shown</div>
-              <button className="button ghost clear-filters-btn" onClick={clearAllFilters}>
-                Reset filters
+              {/* Mobile: Filter toggle button */}
+              <button
+                className={`filter-toggle-btn${filtersOpen ? ' active' : ''}${activeFilterCount ? ' has-active' : ''}`}
+                onClick={() => setFiltersOpen(o => !o)}
+                aria-expanded={filtersOpen}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M1 3h12M3 7h8M5 11h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+                Filters
+                {activeFilterCount > 0 && <span className="filter-toggle-badge">{activeFilterCount}</span>}
+              </button>
+              {/* Desktop: reset button always visible */}
+              <button className="button ghost small clear-filters-btn desktop-only" onClick={clearAllFilters}>
+                Reset
               </button>
             </div>
           </div>
 
-          <div className="filters-section">
-            <div className="section-title-row">
-              <div>
-                <h3>Browse filters</h3>
-                <p>Refine the loaded listings without leaving the page.</p>
-              </div>
-              {activeFilterCount ? <span className="active-count-badge">{activeFilterCount} active</span> : null}
+          {/* Active pills — always visible when filters are set */}
+          {activeFilterPills.length > 0 && (
+            <div className="active-pills-row">
+              {activeFilterPills.map((pill) => (
+                <button
+                  key={`${pill.key}-${pill.label}`}
+                  type="button"
+                  className="active-filter-pill"
+                  onClick={() => clearSingleFilter(pill.key, pill.value)}
+                >
+                  <span>{pill.label}</span>
+                  <strong>×</strong>
+                </button>
+              ))}
+              <button type="button" className="active-filter-pill active-filter-pill--clear" onClick={clearAllFilters}>
+                Clear all
+              </button>
             </div>
+          )}
 
+          {/* ── Collapsible filter body ───────────────────── */}
+          <div className={`filter-body${filtersOpen ? ' filter-body--open' : ''}`}>
+            {/* Dropdowns */}
             <div className="filters-grid improved-grid">
               <NativeSelect label="City" value={filters.city} onChange={(e) => updateFilter('city', e.target.value)}>
                 <option value="">All cities</option>
@@ -361,106 +393,75 @@ export default function PropertiesPage() {
                 <option value="rent-high">Rent: high to low</option>
               </NativeSelect>
             </div>
+
+            {/* BHK chips */}
+            <div className="filter-row-section">
+              <span className="filter-row-label">BHK</span>
+              <div className="bhk-chip-row">
+                <button type="button" className={`bhk-chip${!filters.bhk ? ' active' : ''}`} onClick={() => updateFilter('bhk', '')}>All</button>
+                {BHK_OPTIONS.map((bhk) => (
+                  <button type="button" key={bhk} className={`bhk-chip${filters.bhk === bhk ? ' active' : ''}`} onClick={() => updateFilter('bhk', bhk)}>
+                    {bhk}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Budget slider — redesigned */}
+            {showBudgetSlider && (
+              <div className="filter-row-section">
+                <div className="budget-row-head">
+                  <span className="filter-row-label">Budget</span>
+                  <div className="budget-display-values">
+                    <span className="budget-val">{formatCurrency(budgetRange.min)}</span>
+                    <span className="budget-sep">–</span>
+                    <span className="budget-val">{formatCurrency(budgetRange.max)}</span>
+                  </div>
+                </div>
+                <div className="dual-range-wrap">
+                  {/* Track background */}
+                  <div className="dual-range-track">
+                    <div
+                      className="dual-range-fill"
+                      style={{
+                        left: `${((budgetRange.min - activeBudgetBounds.min) / Math.max(activeBudgetBounds.max - activeBudgetBounds.min, 1)) * 100}%`,
+                        right: `${100 - ((budgetRange.max - activeBudgetBounds.min) / Math.max(activeBudgetBounds.max - activeBudgetBounds.min, 1)) * 100}%`,
+                      }}
+                    />
+                  </div>
+                  <input
+                    className="dual-range dual-range-min"
+                    type="range"
+                    min={activeBudgetBounds.min}
+                    max={activeBudgetBounds.max}
+                    step="500"
+                    value={budgetRange.min}
+                    onChange={(e) => handleBudgetMinChange(e.target.value)}
+                    aria-label="Minimum budget"
+                  />
+                  <input
+                    className="dual-range dual-range-max"
+                    type="range"
+                    min={activeBudgetBounds.min}
+                    max={activeBudgetBounds.max}
+                    step="500"
+                    value={budgetRange.max}
+                    onChange={(e) => handleBudgetMaxChange(e.target.value)}
+                    aria-label="Maximum budget"
+                  />
+                </div>
+                <div className="dual-range-scale">
+                  <span>{formatCurrency(activeBudgetBounds.min)}</span>
+                  <span>{formatCurrency(activeBudgetBounds.max)}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Mobile reset button inside panel */}
+            <button className="button ghost full mobile-only" onClick={() => { clearAllFilters(); setFiltersOpen(false); }}>
+              Reset all filters
+            </button>
           </div>
-
-          <div className="filters-section compact-section">
-            <div className="section-title-row compact">
-              <div>
-                <h3>BHK</h3>
-                <p>Use quick picks for a faster browse flow.</p>
-              </div>
-            </div>
-            <div className="bhk-chip-row">
-              <button
-                type="button"
-                className={`bhk-chip ${!filters.bhk ? 'active' : ''}`}
-                onClick={() => updateFilter('bhk', '')}
-              >
-                All
-              </button>
-              {BHK_OPTIONS.map((bhk) => (
-                <button
-                  type="button"
-                  key={bhk}
-                  className={`bhk-chip ${filters.bhk === bhk ? 'active' : ''}`}
-                  onClick={() => updateFilter('bhk', bhk)}
-                >
-                  {bhk === '4+' ? '4+' : bhk}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="budget-filter-card">
-            <div className="budget-filter-head">
-              <div>
-                <strong>Budget range</strong>
-                <p>
-                  {filters.locality
-                    ? `Using the current ${filters.locality} rent range from loaded properties.`
-                    : 'Using the overall loaded rent range across the properties page.'}
-                </p>
-              </div>
-              <div className="budget-range-values">
-                <span>{formatCurrency(showBudgetSlider ? budgetRange.min : activeBudgetBounds.min)}</span>
-                <span>{formatCurrency(showBudgetSlider ? budgetRange.max : activeBudgetBounds.max)}</span>
-              </div>
-            </div>
-
-            <div className="budget-slider-stack">
-              <div className="budget-slider-wrap">
-                <div
-                  className="budget-slider-fill"
-                  style={{
-                    left: showBudgetSlider
-                      ? `${((budgetRange.min - activeBudgetBounds.min) / Math.max(activeBudgetBounds.max - activeBudgetBounds.min, 1)) * 100}%`
-                      : '0%',
-                    right: showBudgetSlider
-                      ? `${100 - ((budgetRange.max - activeBudgetBounds.min) / Math.max(activeBudgetBounds.max - activeBudgetBounds.min, 1)) * 100}%`
-                      : '0%',
-                  }}
-                />
-                <input
-                  className="budget-slider budget-slider-min"
-                  type="range"
-                  min={showBudgetSlider ? activeBudgetBounds.min : 0}
-                  max={showBudgetSlider ? activeBudgetBounds.max : 100}
-                  step="500"
-                  value={showBudgetSlider ? budgetRange.min : 0}
-                  onChange={(e) => handleBudgetMinChange(e.target.value)}
-                />
-                <input
-                  className="budget-slider budget-slider-max"
-                  type="range"
-                  min={showBudgetSlider ? activeBudgetBounds.min : 0}
-                  max={showBudgetSlider ? activeBudgetBounds.max : 100}
-                  step="500"
-                  value={showBudgetSlider ? budgetRange.max : 100}
-                  onChange={(e) => handleBudgetMaxChange(e.target.value)}
-                />
-              </div>
-              <div className="budget-slider-scale">
-                <span>{formatCurrency(showBudgetSlider ? activeBudgetBounds.min : 0)}</span>
-                <span>{formatCurrency(showBudgetSlider ? activeBudgetBounds.max : 0)}</span>
-              </div>
-            </div>
-          </div>
-
-          {activeFilterPills.length ? (
-            <div className="active-pills-row">
-              {activeFilterPills.map((pill) => (
-                <button
-                  key={`${pill.key}-${pill.label}`}
-                  type="button"
-                  className="active-filter-pill"
-                  onClick={() => clearSingleFilter(pill.key, pill.value)}
-                >
-                  <span>{pill.label}</span>
-                  <strong>×</strong>
-                </button>
-              ))}
-            </div>
-          ) : null}
         </div>
       </section>
 

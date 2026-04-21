@@ -1010,3 +1010,285 @@ img, video { display: block; max-width: 100%; }
   .drawer-link { min-height: 54px; }
   .searchable-select-option { min-height: 50px; }
 }
+
+/* ╔══════════════════════════════════════════════════════════╗
+   ║  FIX BATCH — Filter panel, budget slider, card link     ║
+   ╚══════════════════════════════════════════════════════════╝ */
+
+/* ── Property card as full link ────────────────────────────── */
+/* <Link> wraps the whole card so it inherits card styles */
+a.property-card {
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+}
+a.property-card:hover { color: inherit; }
+.property-view-hint {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  transition: color 0.12s;
+}
+.property-card:hover .property-view-hint { color: var(--text); }
+
+/* ── Search clear button ────────────────────────────────────── */
+.search-clear {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  transition: background 0.1s, color 0.1s;
+}
+.search-clear:hover { background: var(--bg-soft); color: var(--text); }
+
+/* ── Filter toggle button (mobile) ─────────────────────────── */
+.filter-toggle-btn {
+  display: none; /* shown on mobile via media query */
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  cursor: pointer;
+  transition: var(--transition-chip);
+  min-height: 40px;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+.filter-toggle-btn:hover { border-color: var(--border-dark); background: var(--bg-soft); }
+.filter-toggle-btn.active {
+  background: var(--text);
+  color: #fff;
+  border-color: var(--text);
+}
+.filter-toggle-btn.has-active { border-color: var(--text); }
+.filter-toggle-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text);
+  color: #fff;
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  line-height: 1;
+  flex-shrink: 0;
+}
+.filter-toggle-btn.active .filter-toggle-badge {
+  background: #fff;
+  color: var(--text);
+}
+
+/* ── Filter body — collapsible panel ───────────────────────── */
+.filter-body {
+  display: grid;
+  gap: 16px;
+}
+/* On mobile, hidden by default, shown when open */
+/* On desktop, always visible (controlled via media query) */
+
+/* ── Filter row section (BHK + budget inline) ──────────────── */
+.filter-row-section {
+  display: grid;
+  gap: 10px;
+}
+.filter-row-label {
+  font-size: 0.72rem;
+  font-weight: var(--fw-semibold);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-wide);
+}
+
+/* ── Active filter pills clear-all variant ──────────────────── */
+.active-filter-pill--clear {
+  border-style: dashed;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.active-filter-pill--clear:hover { background: var(--bg-soft); color: var(--text); }
+
+/* ── Improved budget slider ─────────────────────────────────── */
+.budget-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.budget-display-values {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 5px 12px;
+}
+.budget-val {
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  white-space: nowrap;
+}
+.budget-sep { font-size: var(--text-xs); color: var(--muted); }
+
+/* Dual range slider container */
+.dual-range-wrap {
+  position: relative;
+  height: 36px; /* tall enough for 44px thumb touchability */
+  display: flex;
+  align-items: center;
+}
+
+/* Visible track */
+.dual-range-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--border);
+  border-radius: var(--radius-pill);
+  pointer-events: none;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.dual-range-fill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: var(--text);
+  border-radius: var(--radius-pill);
+}
+
+/* The range inputs — stacked, transparent, full width */
+.dual-range {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 36px;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: none;
+  top: 0;
+  outline: none;
+}
+/* Only the thumb gets pointer events */
+.dual-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 2px solid var(--text);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.06);
+  pointer-events: auto;
+  cursor: grab;
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+.dual-range::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.15);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2), 0 0 0 4px rgba(17,17,17,0.08);
+}
+.dual-range::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 2px solid var(--text);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  pointer-events: auto;
+  cursor: grab;
+}
+.dual-range::-moz-range-track { background: transparent; height: 4px; }
+.dual-range::-webkit-slider-runnable-track { background: transparent; height: 4px; }
+
+/* Z-index: min thumb on top when dragging left, max on top when dragging right */
+.dual-range-min { z-index: 3; }
+.dual-range-max { z-index: 4; }
+/* When min reaches max, lift min above max so it's draggable */
+.dual-range-min::-webkit-slider-thumb { z-index: 5; }
+
+.dual-range-scale {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+/* ── Mobile: collapsible filter panel ──────────────────────── */
+@media (max-width: 767px) {
+  /* Show the toggle button, hide desktop reset */
+  .filter-toggle-btn { display: inline-flex; }
+
+  /* Filter body — hidden by default on mobile */
+  .filter-body {
+    display: none;
+    gap: 14px;
+    padding-top: 4px;
+    border-top: 1px solid var(--border);
+    margin-top: 4px;
+    animation: filterSlide 0.18s ease;
+  }
+  .filter-body--open {
+    display: grid;
+  }
+  @keyframes filterSlide {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Dropdowns — single column */
+  .filters-grid.improved-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  /* Listing controls — tighter on mobile */
+  .listing-controls {
+    padding: 12px;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  /* Budget display values — smaller */
+  .budget-display-values { padding: 4px 10px; }
+  .budget-val { font-size: var(--text-xs); }
+
+  /* Dual range — bigger touch targets on mobile */
+  .dual-range-wrap { height: 44px; }
+  .dual-range { height: 44px; }
+  .dual-range::-webkit-slider-thumb { width: 26px; height: 26px; }
+  .dual-range::-moz-range-thumb { width: 26px; height: 26px; }
+}
+
+@media (max-width: 375px) {
+  .filters-grid.improved-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Desktop: filter body always visible ───────────────────── */
+@media (min-width: 768px) {
+  .filter-toggle-btn { display: none; }
+  .filter-body { display: grid; } /* always open on desktop */
+}

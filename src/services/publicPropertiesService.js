@@ -81,8 +81,11 @@ async function createSignedMediaUrlMap(rows = []) {
 function buildMediaCandidates(mediaRow, signedUrlMap = new Map()) {
   const normalized = normalizeStoragePath(mediaRow?.storage_path || mediaRow?.public_url || '');
   const candidates = [];
-  if (looksLikeHttpUrl(mediaRow?.public_url)) candidates.push(mediaRow.public_url);
+  // Public URL first — works for unauthenticated users (no login required)
   if (normalized) candidates.push(getPublicMediaUrl(normalized));
+  // Stored public_url as second fallback (may be a direct CDN link)
+  if (looksLikeHttpUrl(mediaRow?.public_url)) candidates.push(mediaRow.public_url);
+  // Signed URL last — only works when user has a valid session
   if (normalized && signedUrlMap.has(normalized)) candidates.push(signedUrlMap.get(normalized));
   return [...new Set(candidates.filter(Boolean))];
 }

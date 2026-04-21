@@ -206,6 +206,13 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
     if (!profile?.id) return;
     setSubmitting(true);
     setError('');
+
+    // iOS Safari blocks window.open() called after any await.
+    // Open the window synchronously first (user gesture is still active),
+    // then redirect it to the real URL once we have it.
+    // If the async call fails we close the window so nothing hangs open.
+    const waWindow = window.open('', '_blank', 'noopener,noreferrer');
+
     try {
       const preferences = {
         preferred_localities: normalizeLocalities(form.localities),
@@ -213,12 +220,20 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
         rent_max: form.rent_max || budgetRange.max || null,
         is_first_visit_form_completed: true,
       };
-      // createVisitRequest will skip inserting if a visit already exists (duplicate guard)
       const result = await createVisitRequest({ profile, property, preferences });
       onSuccess?.(result.record);
-      window.open(result.whatsappUrl, '_blank', 'noopener,noreferrer');
+
+      // Now redirect the already-open window to the real WhatsApp URL
+      if (waWindow && !waWindow.closed) {
+        waWindow.location.href = result.whatsappUrl;
+      } else {
+        // Fallback: window was blocked, use location.href directly
+        window.location.href = result.whatsappUrl;
+      }
       onClose?.();
     } catch (err) {
+      // Close the blank window if something went wrong
+      if (waWindow && !waWindow.closed) waWindow.close();
       setError(err.message || 'Unable to create visit request.');
     } finally {
       setSubmitting(false);

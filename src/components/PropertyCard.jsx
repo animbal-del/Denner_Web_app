@@ -11,7 +11,11 @@ export default function PropertyCard({ property }) {
   const coverMedia = useMemo(() => (property.media || []).find((item) => item?.url) || null, [property.media]);
 
   return (
-    <article className="property-card">
+    <Link
+      to={`/property/${property.share_code}`}
+      className="property-card"
+      aria-label={`View ${property.society_name}`}
+    >
       <div className="property-media-wrap">
         <MediaAsset
           media={coverMedia}
@@ -30,13 +34,13 @@ export default function PropertyCard({ property }) {
         <h3>{property.society_name}</h3>
         <p>{property.locality}, {property.city}</p>
         <div className="property-highlights">
-          {(property.highlights || []).map((item) => <span key={item}>{item}</span>)}
+          {(property.highlights || []).slice(0, 3).map((item) => <span key={item}>{item}</span>)}
         </div>
         <div className="property-footer">
           <strong>{formatCurrency(property.monthly_rent)}</strong>
-          <Link className="button ghost small" to={`/property/${property.share_code}`}>View Details</Link>
+          <span className="property-view-hint">View details →</span>
         </div>
       </div>
-    </article>
+    </Link>
   );
 }
