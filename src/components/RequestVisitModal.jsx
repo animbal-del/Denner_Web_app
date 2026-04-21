@@ -207,12 +207,6 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
     setSubmitting(true);
     setError('');
 
-    // iOS Safari blocks window.open() called after any await.
-    // Open the window synchronously first (user gesture is still active),
-    // then redirect it to the real URL once we have it.
-    // If the async call fails we close the window so nothing hangs open.
-    const waWindow = window.open('', '_blank', 'noopener,noreferrer');
-
     try {
       const preferences = {
         preferred_localities: normalizeLocalities(form.localities),
@@ -223,21 +217,47 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
       const result = await createVisitRequest({ profile, property, preferences });
       onSuccess?.(result.record);
 
-      // Now redirect the already-open window to the real WhatsApp URL
-      if (waWindow && !waWindow.closed) {
-        waWindow.location.href = result.whatsappUrl;
-      } else {
-        // Fallback: window was blocked, use location.href directly
-        window.location.href = result.whatsappUrl;
-      }
+      // The most reliable cross-platform WhatsApp opener:
+      // Create a real <a> element and click it — browsers NEVER block
+      // programmatic clicks on anchor elements the way they block window.open.
+      // Use whatsapp:// deep link as primary (opens app directly on mobile,
+      // no redirect hop through wa.me). Falls back to https://wa.me on desktop.
+      openWhatsApp(result.whatsappUrl, result.whatsappMessage, result.whatsappNumber);
       onClose?.();
     } catch (err) {
-      // Close the blank window if something went wrong
-      if (waWindow && !waWindow.closed) waWindow.close();
       setError(err.message || 'Unable to create visit request.');
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function openWhatsApp(waUrl, message, phoneNumber) {
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+    // Build a hidden anchor and click it — always works regardless of async context
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    document.body.appendChild(a);
+
+    if (isMobile) {
+      // whatsapp:// deep link opens the WhatsApp app directly on iOS & Android
+      // No browser redirect hop — most reliable on mobile
+      const cleanPhone = (phoneNumber || '').replace(/[^\d]/g, '');
+      const encodedMsg = encodeURIComponent(message || '');
+      a.href = `whatsapp://send?phone=${cleanPhone}&text=${encodedMsg}`;
+    } else {
+      // Desktop: use wa.me which opens WhatsApp Web or the desktop app
+      a.href = waUrl;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+    }
+
+    a.click();
+
+    // Clean up after a short delay
+    setTimeout(() => {
+      if (document.body.contains(a)) document.body.removeChild(a);
+    }, 300);
   }
 
   const sliderEnabled = Boolean(bounds.max);
