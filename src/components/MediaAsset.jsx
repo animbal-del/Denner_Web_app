@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 
 function uniqueUrls(values = []) {
   const seen = new Set();
@@ -27,37 +27,50 @@ export default function MediaAsset({
     () => uniqueUrls([media?.url, ...(media?.fallback_urls || [])]),
     [media?.url, media?.fallback_urls]
   );
+
   const [index, setIndex] = useState(0);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     setIndex(0);
+    setFailed(false);
   }, [media?.id, media?.url]);
+
+  const handleError = useCallback(() => {
+    setIndex((current) => {
+      const next = current + 1;
+      if (next >= candidates.length) {
+        setFailed(true);
+        return current;
+      }
+      return next;
+    });
+  }, [candidates.length]);
 
   const activeUrl = candidates[index] || '';
   const isVideo = String(media?.media_type || '').toLowerCase() === 'video';
 
-  function advanceCandidate() {
-    setIndex((current) => {
-      if (current + 1 < candidates.length) return current + 1;
-      return current;
-    });
-  }
-
-  if (!activeUrl) {
-    return <div className={placeholderClassName || wrapperClassName}>Media unavailable</div>;
+  // All candidates exhausted
+  if (!activeUrl || failed) {
+    return (
+      <div className={placeholderClassName || wrapperClassName}>
+        <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>No image</span>
+      </div>
+    );
   }
 
   if (isVideo) {
     return (
       <div className={wrapperClassName}>
         <video
+          key={activeUrl}
           src={activeUrl}
           className={videoClassName}
           controls={videoControls}
           muted={!videoControls}
           playsInline
           preload="metadata"
-          onError={advanceCandidate}
+          onError={handleError}
         />
       </div>
     );
@@ -66,12 +79,13 @@ export default function MediaAsset({
   return (
     <div className={wrapperClassName}>
       <img
+        key={activeUrl}
         src={activeUrl}
         alt={alt}
         className={imageClassName}
         loading={imageLoading}
         decoding={imageDecoding}
-        onError={advanceCandidate}
+        onError={handleError}
       />
     </div>
   );

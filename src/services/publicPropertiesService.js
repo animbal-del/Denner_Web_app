@@ -17,11 +17,15 @@ function makePropertyRef(row) {
 
 function normalizeStoragePath(path = '') {
   return String(path || '')
-    .replace(/^https?:\/\/[^/]+\/storage\/v1\/object\/(?:public|sign)\/property-media\//i, '')
-    .replace(/^https?:\/\/[^/]+\/storage\/v1\/object\/sign\/property-media\/[^?]*\?token=.*$/i, '')
-    .replace(/^https?:\/\/[^/]+\/storage\/v1\/object\/public\/property-media\//i, '')
+    .replace(/^https?:\/\/[^/]+\/storage\/v1\/object\/(?:public|sign|authenticated)\/[^/]+\//i, '')
+    .replace(/^[^/]+\//i, (match) => {
+      // Only strip if it looks like a bucket name prefix (no extension)
+      if (/^property-media\//i.test(match)) return '';
+      return match;
+    })
     .replace(/^public\/property-media\//i, '')
     .replace(/^property-media\//i, '')
+    .replace(/^\?.*$/, '')  // strip lone query strings
     .replace(/^\/+/, '')
     .trim();
 }
@@ -57,36 +61,81 @@ function getPublicMediaUrl(storagePath) {
   return data?.publicUrl || '';
 }
 
+/**
+ * Try to create signed URLs using the anon client.
+ * Signed URLs work for ANYONE who has the URL — no auth needed to ACCESS them.
+ * The anon client can CREATE them if the Supabase storage policy allows anon SELECT.
+ * Returns empty map on any failure so callers can gracefully fall back.
+ */
 async function createSignedMediaUrlMap(rows = []) {
-  const validRows = (rows || []).filter((row) => normalizeStoragePath(row?.storage_path || row?.public_url || ''));
+  const validRows = (rows || []).filter((row) => {
+    const p = row?.storage_path || row?.public_url || '';
+    return normalizeStoragePath(p).length > 0;
+  });
   if (!validRows.length) return new Map();
 
-  const normalizedPaths = [...new Set(validRows.map((row) => normalizeStoragePath(row.storage_path || row.public_url)).filter(Boolean))];
+  const normalizedPaths = [
+    ...new Set(
+      validRows
+        .map((row) => normalizeStoragePath(row.storage_path || row.public_url))
+        .filter(Boolean)
+    ),
+  ];
   const out = new Map();
 
   try {
-    const { data, error } = await supabase.storage.from(MEDIA_BUCKET).createSignedUrls(normalizedPaths, 60 * 60);
+    const { data, error } = await supabase.storage
+      .from(MEDIA_BUCKET)
+      .createSignedUrls(normalizedPaths, 60 * 60); // 1 hour
+
     if (!error && Array.isArray(data)) {
       data.forEach((entry, index) => {
         if (entry?.signedUrl) out.set(normalizedPaths[index], entry.signedUrl);
       });
     }
   } catch {
-    // ignore and fall through to public URL logic
+    // Anon policy may not allow createSignedUrls — that's fine, we have other fallbacks
   }
 
   return out;
 }
 
-function buildMediaCandidates(mediaRow, signedUrlMap = new Map()) {
+/**
+ * Build the full ordered list of URL candidates for a single media row.
+ * Order: signed URL (if available) > stored public_url > getPublicMediaUrl > nothing
+ *
+ * Signed URLs are preferred because:
+ *  - They work even for private buckets
+ *  - The token-bearing URL is accessible by anyone (no auth header needed)
+ *  - They degrade gracefully: if generation failed, signedUrlMap is empty
+ *
+ * public_url from DB is second because it may be a direct CDN link that works.
+ * getPublicMediaUrl is third — only works if the bucket has public access enabled.
+ */
+function buildMediaCandidates(mediaRow, signedUrlMap = new Map(), extraFallbacks = []) {
   const normalized = normalizeStoragePath(mediaRow?.storage_path || mediaRow?.public_url || '');
   const candidates = [];
-  // Public URL first — works for unauthenticated users (no login required)
-  if (normalized) candidates.push(getPublicMediaUrl(normalized));
-  // Stored public_url as second fallback (may be a direct CDN link)
-  if (looksLikeHttpUrl(mediaRow?.public_url)) candidates.push(mediaRow.public_url);
-  // Signed URL last — only works when user has a valid session
-  if (normalized && signedUrlMap.has(normalized)) candidates.push(signedUrlMap.get(normalized));
+
+  // 1. Signed URL — works for anyone if generation succeeded
+  if (normalized && signedUrlMap.has(normalized)) {
+    candidates.push(signedUrlMap.get(normalized));
+  }
+
+  // 2. Stored public_url (may be a direct CDN or public storage URL)
+  if (looksLikeHttpUrl(mediaRow?.public_url)) {
+    candidates.push(mediaRow.public_url);
+  }
+
+  // 3. Supabase public storage URL (only works if bucket is set to public)
+  if (normalized) {
+    candidates.push(getPublicMediaUrl(normalized));
+  }
+
+  // 4. Extra fallbacks (e.g. cover_image_url from the flat row)
+  for (const url of extraFallbacks) {
+    if (looksLikeHttpUrl(url)) candidates.push(url);
+  }
+
   return [...new Set(candidates.filter(Boolean))];
 }
 
@@ -106,7 +155,7 @@ async function fetchShareCodeMap(flatIds) {
   return map;
 }
 
-async function fetchCoverMediaMap(flatIds) {
+async function fetchCoverMediaMap(flatIds, coverImageUrlMap = new Map()) {
   if (!flatIds.length) return new Map();
   const { data, error } = await supabase
     .from('inventory_flat_media')
@@ -129,11 +178,16 @@ async function fetchCoverMediaMap(flatIds) {
     if (chosen) chosenRows.push(chosen);
   }
 
+  // Attempt signed URLs — works for anon if storage policy allows it
+  // Fails silently so public URL fallbacks are still used
   const signedUrlMap = await createSignedMediaUrlMap(chosenRows);
+
   const out = new Map();
   for (const row of chosenRows) {
     const normalized = normalizeStoragePath(row.storage_path || row.public_url);
-    const candidates = buildMediaCandidates(row, signedUrlMap);
+    // Pass the flat's cover_image_url as an extra fallback
+    const coverUrl = coverImageUrlMap.get(row.flat_id) || '';
+    const candidates = buildMediaCandidates(row, signedUrlMap, [coverUrl]);
     if (!candidates.length) continue;
     out.set(row.flat_id, [{
       id: row.id,
@@ -147,6 +201,27 @@ async function fetchCoverMediaMap(flatIds) {
       created_at: row.created_at,
     }]);
   }
+
+  // For flats that had NO rows in inventory_flat_media, use cover_image_url directly
+  for (const flatId of flatIds) {
+    if (!out.has(flatId)) {
+      const coverUrl = coverImageUrlMap.get(flatId) || '';
+      if (looksLikeHttpUrl(coverUrl)) {
+        out.set(flatId, [{
+          id: `cover-${flatId}`,
+          flat_id: flatId,
+          media_type: 'image',
+          url: coverUrl,
+          fallback_urls: [],
+          storage_path: null,
+          is_cover: true,
+          sort_order: 0,
+          created_at: null,
+        }]);
+      }
+    }
+  }
+
   return out;
 }
 
@@ -160,37 +235,47 @@ async function fetchAllMediaForFlat(flatId) {
     .order('created_at', { ascending: true });
   if (error) throw error;
 
-  const signedUrlMap = await createSignedMediaUrlMap(data || []);
-  const enriched = (data || []).map((row) => {
-    const candidates = buildMediaCandidates(row, signedUrlMap);
-    return {
-      id: row.id,
-      flat_id: row.flat_id,
-      media_type: row.media_type,
-      url: candidates[0] || '',
-      fallback_urls: candidates.slice(1),
-      storage_path: normalizeStoragePath(row.storage_path || row.public_url),
-      is_cover: row.is_cover,
-      sort_order: row.sort_order || 0,
-      created_at: row.created_at,
-    };
-  }).filter((item) => item.url);
+  const rows = data || [];
+  const signedUrlMap = await createSignedMediaUrlMap(rows);
+
+  const enriched = rows
+    .map((row) => {
+      const candidates = buildMediaCandidates(row, signedUrlMap);
+      return {
+        id: row.id,
+        flat_id: row.flat_id,
+        media_type: row.media_type,
+        url: candidates[0] || '',
+        fallback_urls: candidates.slice(1),
+        storage_path: normalizeStoragePath(row.storage_path || row.public_url),
+        is_cover: row.is_cover,
+        sort_order: row.sort_order || 0,
+        created_at: row.created_at,
+      };
+    })
+    .filter((item) => item.url);
 
   return sortMedia(enriched);
 }
 
 function normalizeProperty(row, mediaMap, shareCodeMap) {
   const media = mediaMap.get(row.id) || [];
-  const fallbackCover = row.cover_image_url && looksLikeHttpUrl(row.cover_image_url) ? [{
-    id: `cover-${row.id}`,
-    flat_id: row.id,
-    media_type: 'image',
-    url: row.cover_image_url,
-    fallback_urls: [],
-    storage_path: null,
-    is_cover: true,
-    sort_order: 0,
-  }] : [];
+
+  // cover_image_url is already baked into media fallback_urls via fetchCoverMediaMap,
+  // but keep this as a final safety net for cases where media is truly empty
+  const fallbackCover =
+    row.cover_image_url && looksLikeHttpUrl(row.cover_image_url)
+      ? [{
+          id: `cover-${row.id}`,
+          flat_id: row.id,
+          media_type: 'image',
+          url: row.cover_image_url,
+          fallback_urls: [],
+          storage_path: null,
+          is_cover: true,
+          sort_order: 0,
+        }]
+      : [];
 
   return {
     id: row.id,
@@ -248,7 +333,7 @@ const PUBLIC_SELECT = `
 
 async function fetchSupabasePropertiesPage(page = 1, pageSize = PUBLIC_PAGE_SIZE) {
   const start = Math.max(0, (page - 1) * pageSize);
-  const end = start + pageSize; // fetch one extra row for hasMore
+  const end = start + pageSize;
 
   const { data, error } = await supabase
     .from('inventory_flats')
@@ -264,8 +349,17 @@ async function fetchSupabasePropertiesPage(page = 1, pageSize = PUBLIC_PAGE_SIZE
   const hasMore = rows.length > pageSize;
   const pageRows = hasMore ? rows.slice(0, pageSize) : rows;
   const flatIds = pageRows.map((row) => row.id);
+
+  // Build a cover_image_url map from the flat rows so fetchCoverMediaMap
+  // can use it as a final fallback when storage URLs fail
+  const coverImageUrlMap = new Map(
+    pageRows
+      .filter((row) => looksLikeHttpUrl(row.cover_image_url))
+      .map((row) => [row.id, row.cover_image_url])
+  );
+
   const [coverMediaMap, shareCodeMap] = await Promise.all([
-    fetchCoverMediaMap(flatIds),
+    fetchCoverMediaMap(flatIds, coverImageUrlMap),
     fetchShareCodeMap(flatIds),
   ]);
 
@@ -302,7 +396,6 @@ async function fetchSupabasePropertyByRef(propertyRef) {
       .maybeSingle();
     if (linkError) throw linkError;
     if (!linkRow?.flat_id) return null;
-
     shareCode = linkRow.share_code;
 
     const { data, error } = await supabase
@@ -329,7 +422,6 @@ export async function getPreviewPropertiesPage(page = 1, pageSize = PUBLIC_PAGE_
   return fetchSupabasePropertiesPage(page, pageSize);
 }
 
-
 export async function fetchPreviewPropertiesByIds(flatIds = []) {
   if (!hasSupabase) throw new Error('Supabase is not configured for the public app.');
   const normalizedIds = [...new Set((flatIds || []).map((id) => Number(id)).filter(Boolean))];
@@ -348,8 +440,15 @@ export async function fetchPreviewPropertiesByIds(flatIds = []) {
   const rowMap = new Map(rows.map((row) => [row.id, row]));
   const orderedRows = normalizedIds.map((id) => rowMap.get(id)).filter(Boolean);
   const orderedFlatIds = orderedRows.map((row) => row.id);
+
+  const coverImageUrlMap = new Map(
+    orderedRows
+      .filter((row) => looksLikeHttpUrl(row.cover_image_url))
+      .map((row) => [row.id, row.cover_image_url])
+  );
+
   const [coverMediaMap, shareCodeMap] = await Promise.all([
-    fetchCoverMediaMap(orderedFlatIds),
+    fetchCoverMediaMap(orderedFlatIds, coverImageUrlMap),
     fetchShareCodeMap(orderedFlatIds),
   ]);
 
@@ -365,7 +464,6 @@ export function getCoverImage(property) {
   return property?.media?.[0]?.url || '';
 }
 
-
 export async function getAvailableLocalities() {
   if (!hasSupabase) throw new Error('Supabase is not configured for the public app.');
   const { data, error } = await supabase
@@ -378,13 +476,14 @@ export async function getAvailableLocalities() {
     .limit(1000);
 
   if (error) throw error;
-
   return [...new Set((data || []).map((row) => String(row.locality || '').trim()).filter(Boolean))];
 }
 
 export async function getRentBoundsForLocalities(localities = []) {
   if (!hasSupabase) throw new Error('Supabase is not configured for the public app.');
-  const selected = [...new Set((localities || []).map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 3);
+  const selected = [
+    ...new Set((localities || []).map((item) => String(item || '').trim()).filter(Boolean)),
+  ].slice(0, 3);
 
   let query = supabase
     .from('inventory_flats')
@@ -395,9 +494,7 @@ export async function getRentBoundsForLocalities(localities = []) {
     .order('monthly_rent', { ascending: true })
     .limit(1000);
 
-  if (selected.length) {
-    query = query.in('locality', selected);
-  }
+  if (selected.length) query = query.in('locality', selected);
 
   const { data, error } = await query;
   if (error) throw error;
