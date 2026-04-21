@@ -133,6 +133,29 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
     setForm((prev) => ({ ...prev, rent_min: budgetRange.min, rent_max: budgetRange.max }));
   }, [budgetRange.min, budgetRange.max, bounds.max]);
 
+  // Lock body scroll when modal is open — prevents iOS scroll-through
+  useEffect(() => {
+    if (open) {
+      const scrollY = window.scrollY;
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.width = '100%';
+    } else {
+      const scrollY = document.body.style.top;
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
+    }
+    return () => {
+      const scrollY = document.body.style.top;
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
+    };
+  }, [open]);
+
   if (!open) return null;
 
   function updateLocality(index, value) {
