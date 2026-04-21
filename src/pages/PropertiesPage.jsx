@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import PropertyCard from '../components/PropertyCard.jsx';
 import { usePublicProperties } from '../services/publicPropertiesContext.jsx';
+import NativeSelect from '../components/NativeSelect.jsx';
 
 const BHK_OPTIONS = ['1', '1.5', '2', '2.5', '3', '3.5', '4+'];
 
@@ -297,9 +298,9 @@ export default function PropertiesPage() {
     <div className="page-shell">
       <section className="container listing-header">
         <div>
-          <div className="eyebrow">Verified property previews</div>
-          <h1>Browse Denner inventory</h1>
-          <p>See real listings first. Log in only when you want to go deeper.</p>
+          <p className="eyebrow">Verified property previews</p>
+          <h1 className="page-title">Browse Denner inventory</h1>
+          <p className="listing-header-sub">See real listings first. Log in only when you want to go deeper.</p>
         </div>
 
         <div className="listing-controls card-surface">
@@ -334,75 +335,31 @@ export default function PropertiesPage() {
             </div>
 
             <div className="filters-grid improved-grid">
-              <label className="filter-field">
-                <span>City</span>
-                <select value={filters.city} onChange={(e) => updateFilter('city', e.target.value)}>
-                  <option value="">All cities</option>
-                  {cities.map((city) => (
-                    <option key={city} value={city}>
-                      {city}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <NativeSelect label="City" value={filters.city} onChange={(e) => updateFilter('city', e.target.value)}>
+                <option value="">All cities</option>
+                {cities.map((city) => <option key={city} value={city}>{city}</option>)}
+              </NativeSelect>
 
-              <label className="filter-field">
-                <span>Locality</span>
-                <select
-                  value={filters.locality}
-                  onChange={(e) => updateFilter('locality', e.target.value)}
-                >
-                  <option value="">All localities</option>
-                  {localities.map((locality) => (
-                    <option key={locality} value={locality}>
-                      {locality}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <NativeSelect label="Locality" value={filters.locality} onChange={(e) => updateFilter('locality', e.target.value)}>
+                <option value="">All localities</option>
+                {localities.map((locality) => <option key={locality} value={locality}>{locality}</option>)}
+              </NativeSelect>
 
-              <label className="filter-field">
-                <span>Property type</span>
-                <select
-                  value={filters.propertyType}
-                  onChange={(e) => updateFilter('propertyType', e.target.value)}
-                >
-                  <option value="">All property types</option>
-                  {propertyTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <NativeSelect label="Property type" value={filters.propertyType} onChange={(e) => updateFilter('propertyType', e.target.value)}>
+                <option value="">All types</option>
+                {propertyTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+              </NativeSelect>
 
-              <label className="filter-field">
-                <span>Furnishing</span>
-                <select
-                  value={filters.furnishingStatus}
-                  onChange={(e) => updateFilter('furnishingStatus', e.target.value)}
-                >
-                  <option value="">Any furnishing</option>
-                  {furnishingOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <NativeSelect label="Furnishing" value={filters.furnishingStatus} onChange={(e) => updateFilter('furnishingStatus', e.target.value)}>
+                <option value="">Any furnishing</option>
+                {furnishingOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+              </NativeSelect>
 
-              <label className="filter-field">
-                <span>Sort by</span>
-                <select
-                  className="sort-select"
-                  value={filters.sortBy}
-                  onChange={(e) => updateFilter('sortBy', e.target.value)}
-                >
-                  <option value="newest">Newest first</option>
-                  <option value="rent-low">Rent low to high</option>
-                  <option value="rent-high">Rent high to low</option>
-                </select>
-              </label>
+              <NativeSelect label="Sort by" value={filters.sortBy} onChange={(e) => updateFilter('sortBy', e.target.value)}>
+                <option value="newest">Newest first</option>
+                <option value="rent-low">Rent: low to high</option>
+                <option value="rent-high">Rent: high to low</option>
+              </NativeSelect>
             </div>
           </div>
 

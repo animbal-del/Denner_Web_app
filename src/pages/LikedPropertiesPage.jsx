@@ -31,29 +31,31 @@ export default function LikedPropertiesPage() {
 
   return (
     <div className="page-shell">
-      <section className="container section-head profile-page-head">
-        <div>
-          <div className="eyebrow">Liked properties</div>
-          <h1>Your shortlist.</h1>
+      <div className="container">
+        <div className="page-head">
+          <div>
+            <p className="eyebrow">Liked properties</p>
+            <h1 className="page-title">Your shortlist.</h1>
+          </div>
+          <Link to="/properties" className="button ghost page-head-cta">Browse more</Link>
         </div>
-        <Link to="/properties" className="button ghost">Browse more</Link>
-      </section>
 
-      <section className="container">
-        {loading ? <div className="empty-state">Loading shortlist…</div> : null}
-        {error ? <div className="empty-state">{error}</div> : null}
-        {!loading && !error && !savedProperties.length ? (
-          <div className="empty-state">
-            <p>No liked properties yet.</p>
+        {loading && <div className="empty-state">Loading shortlist…</div>}
+        {error && <div className="empty-state">{error}</div>}
+        {!loading && !error && !savedProperties.length && (
+          <div className="empty-state empty-state--centered">
+            <p style={{ marginBottom: 16 }}>No liked properties yet.</p>
             <Link to="/properties" className="button primary">Browse properties</Link>
           </div>
-        ) : null}
-        {!!savedProperties.length ? (
-          <div className="properties-grid saved-grid">
-            {savedProperties.map((property) => <PropertyCard key={property.id} property={property} />)}
+        )}
+        {savedProperties.length > 0 && (
+          <div className="properties-grid">
+            {savedProperties.map((property) => (
+              <PropertyCard key={property.id} property={property} />
+            ))}
           </div>
-        ) : null}
-      </section>
+        )}
+      </div>
     </div>
   );
 }

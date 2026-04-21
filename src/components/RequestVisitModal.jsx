@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../services/authService.jsx';
-import { createVisitRequest } from '../services/visitRequestsService.js';
+import { createVisitRequest, getExistingVisitRequest } from '../services/visitRequestsService.js';
 import { buildEmptyPreferences, getUserPreferences, upsertUserPreferences } from '../services/userPreferencesService.js';
 import { getAvailableLocalities, getRentBoundsForLocalities } from '../services/publicPropertiesService.js';
 import SearchableSelect from './SearchableSelect.jsx';
@@ -29,6 +29,7 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
   const { isAuthenticated, profile } = useAuth();
   const [loadingPrefs, setLoadingPrefs] = useState(true);
   const [preferencesReady, setPreferencesReady] = useState(false);
+  const [alreadyRequested, setAlreadyRequested] = useState(false);
   const [localityOptions, setLocalityOptions] = useState([]);
   const [bounds, setBounds] = useState({ min: 0, max: 0 });
   const [budgetRange, setBudgetRange] = useState({ min: 0, max: 0 });
@@ -45,11 +46,13 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
     async function bootstrap() {
       setLoadingPrefs(true);
       setError('');
+      setAlreadyRequested(false);
 
-      const [prefsResult, optionsResult, overallBoundsResult] = await Promise.allSettled([
+      const [prefsResult, optionsResult, overallBoundsResult, existingResult] = await Promise.allSettled([
         getUserPreferences(profile.id),
         getAvailableLocalities(),
         getRentBoundsForLocalities([]),
+        getExistingVisitRequest(profile.id, property?.id),
       ]);
 
       if (!active) return;
@@ -57,9 +60,15 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
       const prefData = prefsResult.status === 'fulfilled' ? prefsResult.value : null;
       const options = optionsResult.status === 'fulfilled' ? (optionsResult.value || []) : [];
       const overallBounds = overallBoundsResult.status === 'fulfilled' ? overallBoundsResult.value : { min: 0, max: 0 };
+      const existingVisit = existingResult.status === 'fulfilled' ? existingResult.value : null;
       const preferredLocalities = prefData?.preferred_localities || [];
 
       setLocalityOptions(options);
+
+      // If user already requested a visit for this flat, mark it
+      if (existingVisit) {
+        setAlreadyRequested(true);
+      }
 
       let nextBounds = overallBounds;
       if (preferredLocalities.length) {
@@ -89,9 +98,7 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
       if (prefsResult.status === 'rejected') bootErrors.push('preferences');
       if (optionsResult.status === 'rejected') bootErrors.push('localities');
       if (overallBoundsResult.status === 'rejected') bootErrors.push('rent range');
-      if (bootErrors.length) {
-        setError(`Some visit details could not be loaded. You can still continue.`);
-      }
+      if (bootErrors.length) setError('Some visit details could not be loaded. You can still continue.');
       setLoadingPrefs(false);
     }
 
@@ -101,15 +108,12 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
       setLoadingPrefs(false);
     });
 
-    return () => {
-      active = false;
-    };
-  }, [open, isAuthenticated, profile?.id, profile?.role, profile?.city, profile?.state]);
+    return () => { active = false; };
+  }, [open, isAuthenticated, profile?.id, profile?.role, profile?.city, profile?.state, property?.id]);
 
   useEffect(() => {
     if (!open || !isAuthenticated || profile?.role !== 'user') return;
     let active = true;
-
     async function loadBounds() {
       try {
         const nextBounds = await getRentBoundsForLocalities(selectedLocalities);
@@ -118,14 +122,10 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
         setBudgetRange((current) => clampRange(current.min, current.max, nextBounds));
       } catch {
         if (!active) return;
-        setBounds((current) => current);
       }
     }
-
     loadBounds();
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, [open, isAuthenticated, profile?.role, selectedLocalities.join('|')]);
 
   useEffect(() => {
@@ -190,6 +190,7 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
         rent_max: form.rent_max || budgetRange.max || null,
         is_first_visit_form_completed: true,
       };
+      // createVisitRequest will skip inserting if a visit already exists (duplicate guard)
       const result = await createVisitRequest({ profile, property, preferences });
       onSuccess?.(result.record);
       window.open(result.whatsappUrl, '_blank', 'noopener,noreferrer');
@@ -262,7 +263,6 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
                   <span>{formatCurrency(sliderEnabled ? budgetRange.max : 0)}</span>
                 </div>
               </div>
-
               <div className="budget-manual-inputs">
                 <label className="field">
                   <span>Min budget</span>
@@ -273,13 +273,16 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
                   <input type="number" min={sliderEnabled ? bounds.min : 0} max={sliderEnabled ? bounds.max : 0} value={sliderEnabled ? budgetRange.max : ''} onChange={(event) => updateBudgetMax(Number(event.target.value || 0))} />
                 </label>
               </div>
-
               <div className="budget-slider-stack">
-                <div className="budget-slider-track" aria-hidden="true">
+                <div className="budget-slider-wrap" aria-hidden="true">
                   <div className="budget-slider-fill" style={{ left: `${((budgetRange.min - bounds.min) / denominator) * 100}%`, right: `${100 - ((budgetRange.max - bounds.min) / denominator) * 100}%` }} />
+                  <input className="budget-slider budget-slider-min" type="range" min={sliderEnabled ? bounds.min : 0} max={sliderEnabled ? bounds.max : 0} step="500" value={sliderEnabled ? budgetRange.min : 0} onChange={(event) => updateBudgetMin(Number(event.target.value))} disabled={!sliderEnabled} />
+                  <input className="budget-slider budget-slider-max" type="range" min={sliderEnabled ? bounds.min : 0} max={sliderEnabled ? bounds.max : 0} step="500" value={sliderEnabled ? budgetRange.max : 0} onChange={(event) => updateBudgetMax(Number(event.target.value))} disabled={!sliderEnabled} />
                 </div>
-                <input type="range" min={sliderEnabled ? bounds.min : 0} max={sliderEnabled ? bounds.max : 0} step="500" value={sliderEnabled ? budgetRange.min : 0} onChange={(event) => updateBudgetMin(Number(event.target.value))} disabled={!sliderEnabled} className="budget-range-thumb min" />
-                <input type="range" min={sliderEnabled ? bounds.min : 0} max={sliderEnabled ? bounds.max : 0} step="500" value={sliderEnabled ? budgetRange.max : 0} onChange={(event) => updateBudgetMax(Number(event.target.value))} disabled={!sliderEnabled} className="budget-range-thumb max" />
+                <div className="budget-slider-scale">
+                  <span>{formatCurrency(sliderEnabled ? bounds.min : 0)}</span>
+                  <span>{formatCurrency(sliderEnabled ? bounds.max : 0)}</span>
+                </div>
               </div>
             </div>
 
@@ -290,20 +293,30 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
           </form>
         ) : (
           <div className="request-visit-confirmation">
-            <div className="detail-copy compact">
-              You are ready to continue. We will create the request and open WhatsApp with the assigned handler.
-            </div>
-            <div className="property-highlights detail-chips compact">
+            {/* Duplicate visit notice — shown but does not block the WA flow */}
+            {alreadyRequested ? (
+              <div className="visit-duplicate-notice">
+                <strong>You've already requested a visit for this property.</strong>
+                <p>We won't create a duplicate entry. You can still open WhatsApp to follow up with the handler.</p>
+              </div>
+            ) : (
+              <p className="detail-copy">
+                We will log your visit request and open WhatsApp with the assigned handler.
+              </p>
+            )}
+            <div className="property-highlights detail-chips">
               {normalizeLocalities(form.localities).map((item) => <span key={item}>{item}</span>)}
             </div>
-            <div className="budget-range-values compact">
+            <div className="budget-range-values">
               <span>{formatCurrency(budgetRange.min)}</span>
               <span>{formatCurrency(budgetRange.max)}</span>
             </div>
             {error ? <div className="form-feedback error">{error}</div> : null}
             <div className="inline-actions end">
               <button type="button" className="button ghost" onClick={() => setPreferencesReady(false)} disabled={submitting}>Edit preferences</button>
-              <button type="button" className="button primary" onClick={handleContinueToWhatsapp} disabled={submitting}>{submitting ? 'Creating request…' : 'Continue to WhatsApp'}</button>
+              <button type="button" className="button primary" onClick={handleContinueToWhatsapp} disabled={submitting}>
+                {submitting ? 'Opening WhatsApp…' : alreadyRequested ? 'Open WhatsApp' : 'Continue to WhatsApp'}
+              </button>
             </div>
           </div>
         )}

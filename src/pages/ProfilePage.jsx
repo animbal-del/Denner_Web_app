@@ -180,8 +180,8 @@ export default function ProfilePage() {
     <div className="page-shell">
       <section className="container profile-page-head">
         <div>
-          <div className="eyebrow">Profile</div>
-          <h1>Your renter workspace.</h1>
+          <p className="eyebrow">Profile</p>
+          <h1 className="page-title">Your renter workspace.</h1>
         </div>
       </section>
 

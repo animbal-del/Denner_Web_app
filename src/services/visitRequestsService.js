@@ -49,13 +49,55 @@ function buildVisitWhatsappMessage({ property, preferences, profile }) {
   return lines.join('\n');
 }
 
+/**
+ * Check if the user has already submitted a visit request for this flat.
+ * Returns the existing record if found, otherwise null.
+ */
+export async function getExistingVisitRequest(profileId, flatId) {
+  if (!hasSupabase) return null;
+  if (!profileId || !flatId) return null;
+
+  const { data, error } = await supabase
+    .from('visit_requests')
+    .select('id, flat_id, status, created_at, whatsapp_message_text')
+    .eq('user_profile_id', profileId)
+    .eq('flat_id', flatId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) return null;
+  return data || null;
+}
+
 export async function createVisitRequest({ profile, property, preferences }) {
   if (!hasSupabase) throw new Error('Supabase is not configured for this app.');
   if (!profile?.id) throw new Error('You must be logged in as a renter to request a visit.');
   if (!property?.id) throw new Error('Missing property for visit request.');
 
+  // ── Duplicate guard ───────────────────────────────────────────────────────
+  // Check if a visit request already exists for this user+flat combination.
+  // If it does, skip inserting a new row and reuse the existing WhatsApp message
+  // so the inventory management app doesn't accumulate duplicate entries.
+  const existing = await getExistingVisitRequest(profile.id, property.id);
+
   const whatsappMessage = buildVisitWhatsappMessage({ property, preferences, profile });
   const whatsappNumber = cleanOptional(property?.handler_whatsapp_number) || DEFAULT_DENNER_WHATSAPP;
+  const whatsappUrl = `https://wa.me/${normalizePhoneForWa(whatsappNumber)}?text=${encodeURIComponent(whatsappMessage)}`;
+
+  if (existing) {
+    // Return the existing record + the freshly-built WhatsApp URL (user
+    // preferences may have changed, so we still open WA with updated message)
+    // but we do NOT insert another row into visit_requests.
+    return {
+      record: existing,
+      whatsappUrl,
+      whatsappMessage,
+      whatsappNumber,
+      isDuplicate: true,
+    };
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   const payload = {
     flat_id: property.id,
@@ -86,8 +128,7 @@ export async function createVisitRequest({ profile, property, preferences }) {
 
   if (error) throw error;
 
-  const whatsappUrl = `https://wa.me/${normalizePhoneForWa(whatsappNumber)}?text=${encodeURIComponent(whatsappMessage)}`;
-  return { record: data, whatsappUrl, whatsappMessage, whatsappNumber };
+  return { record: data, whatsappUrl, whatsappMessage, whatsappNumber, isDuplicate: false };
 }
 
 export async function getVisitRequests(profileId) {

@@ -47,16 +47,8 @@ export default function PropertyDetailPage() {
     setActiveIndex(0);
 
     getPreviewPropertyByShareCode(shareCode)
-      .then((data) => {
-        if (!active) return;
-        setProperty(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        if (!active) return;
-        setError(err.message || 'Failed to load property preview.');
-        setLoading(false);
-      });
+      .then((data) => { if (!active) return; setProperty(data); setLoading(false); })
+      .catch((err) => { if (!active) return; setError(err.message || 'Failed to load property preview.'); setLoading(false); });
 
     return () => { active = false; };
   }, [shareCode, properties]);
@@ -72,136 +64,200 @@ export default function PropertyDetailPage() {
   async function handleShare() {
     const shareUrl = window.location.href;
     const shareTitle = `${property?.society_name || 'Denner property'} · Denner`;
-
     try {
       if (navigator.share) {
         await navigator.share({ title: shareTitle, url: shareUrl });
       } else if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(shareUrl);
       }
-      setShareMessage('Link copied and ready to share.');
+      setShareMessage('Link copied.');
     } catch {
-      setShareMessage('Share was cancelled.');
+      setShareMessage('Share cancelled.');
     }
   }
 
-  if (loading && !property) return <div className="page-shell"><div className="container empty-state">Loading property preview…</div></div>;
+  if (loading && !property) return <div className="page-shell"><div className="container empty-state">Loading property…</div></div>;
   if (error) return <div className="page-shell"><div className="container empty-state">{error}</div></div>;
-  if (!property) return <div className="page-shell"><div className="container empty-state">Property preview not found.</div></div>;
+  if (!property) return <div className="page-shell"><div className="container empty-state">Property not found.</div></div>;
 
   const isRenter = isAuthenticated && profile?.role === 'user';
 
+  const detailFields = [
+    { label: 'Deposit',        value: formatCurrency(property.deposit) },
+    { label: 'Maintenance',    value: formatCurrency(property.maintenance) },
+    { label: 'Bathrooms',      value: property.bathrooms || '—' },
+    { label: 'Balconies',      value: property.balconies || '—' },
+    { label: 'Area',           value: property.sq_ft ? `${property.sq_ft} sq ft` : '—' },
+    { label: 'Available from', value: property.available_from || '—' },
+    { label: 'Sub locality',   value: property.sub_locality || '—' },
+    { label: 'Furnishing',     value: property.furnishing_status || '—' },
+  ];
+
   return (
-    <div className="page-shell">
-      <section className="container detail-grid">
-        <div className="detail-media-card">
-          <div className="detail-carousel">
-            <MediaStage media={currentMedia} title={property.society_name} />
-            {gallery.length > 1 ? (
-              <>
-                <button className="media-nav prev detail" onClick={() => cycle(-1)} aria-label="Previous media">‹</button>
-                <button className="media-nav next detail" onClick={() => cycle(1)} aria-label="Next media">›</button>
-                <div className="media-count-badge detail">{activeIndex + 1}/{gallery.length}</div>
-              </>
-            ) : null}
-          </div>
-          {gallery.length ? (
-            <div className="thumb-strip">
-              {gallery.map((media, index) => (
-                <button
-                  key={media.id}
-                  type="button"
-                  className={`thumb-button${index === activeIndex ? ' active' : ''}`}
-                  onClick={() => setActiveIndex(index)}
-                  aria-label={`Show media ${index + 1}`}
-                >
-                  <MediaAsset
-                    media={media}
-                    alt="Property preview"
-                    wrapperClassName="thumb-media"
-                    imageClassName="thumb-media-image"
-                    videoClassName="thumb-media-video"
-                    placeholderClassName="thumb-media thumb-placeholder"
-                  />
-                </button>
-              ))}
+    <div className="page-shell detail-page">
+      {/* Back link */}
+      <div className="container">
+        <Link to="/properties" className="detail-back-link">← Back to listings</Link>
+      </div>
+
+      {/* ── Main grid ─────────────────────────────────────── */}
+      <div className="container detail-grid">
+
+        {/* LEFT — media */}
+        <div className="detail-media-col">
+          <div className="detail-media-card">
+            <div className="detail-carousel">
+              <MediaStage media={currentMedia} title={property.society_name} />
+              {gallery.length > 1 && (
+                <>
+                  <button className="media-nav prev detail" onClick={() => cycle(-1)} aria-label="Previous">‹</button>
+                  <button className="media-nav next detail" onClick={() => cycle(1)} aria-label="Next">›</button>
+                  <div className="media-count-badge detail">{activeIndex + 1}/{gallery.length}</div>
+                </>
+              )}
             </div>
-          ) : null}
-        </div>
 
-        <div className="detail-side-card">
-          <div className="eyebrow">Denner property</div>
-          <h1>{property.society_name}</h1>
-          <p className="detail-location">{property.locality}, {property.city}</p>
-
-          <div className="detail-price-row">
-            <div className="detail-price">{formatCurrency(property.monthly_rent)}</div>
-            <SavePropertyButton property={property} />
-          </div>
-
-          <div className="property-highlights detail-chips">
-            {(property.highlights || []).map((item) => <span key={item}>{item}</span>)}
-          </div>
-
-          <p className="detail-copy">
-            {property.description || 'Preview the property now and log in to unlock the full renter view.'}
-          </p>
-
-          <div className="detail-actions-grid">
-            <button type="button" className="button ghost" onClick={handleShare}>Share property</button>
-            {isRenter ? (
-              <button type="button" className="button primary" onClick={() => setShowVisitModal(true)}>
-                Schedule visit
-              </button>
-            ) : (
-              <Link to="/login" state={{ from: location.pathname }} className="button primary">
-                Login to schedule
-              </Link>
+            {gallery.length > 1 && (
+              <div className="thumb-strip">
+                {gallery.map((media, index) => (
+                  <button
+                    key={media.id}
+                    type="button"
+                    className={`thumb-button${index === activeIndex ? ' active' : ''}`}
+                    onClick={() => setActiveIndex(index)}
+                    aria-label={`Media ${index + 1}`}
+                  >
+                    <MediaAsset
+                      media={media}
+                      alt="Thumbnail"
+                      wrapperClassName="thumb-media"
+                      imageClassName="thumb-media-image"
+                      videoClassName="thumb-media-video"
+                      placeholderClassName="thumb-media thumb-placeholder"
+                    />
+                  </button>
+                ))}
+              </div>
             )}
           </div>
 
-          {shareMessage ? <div className="form-feedback success">{shareMessage}</div> : null}
-
-          {!isAuthenticated ? (
-            <div className="locked-card">
-              <strong>Full renter details unlock after login</strong>
-              <div className="locked-card-actions">
-                <Link to="/login" state={{ from: location.pathname }} className="button primary">Login</Link>
-                <Link to="/signup" state={{ from: location.pathname }} className="button ghost">Create account</Link>
-              </div>
-            </div>
-          ) : isRenter ? (
-            <div className="unlocked-card">
-              <div className="detail-section-head">
-                <strong>Property details</strong>
-              </div>
-              <div className="info-grid single-mobile">
-                <div><span>Deposit</span><strong>{formatCurrency(property.deposit)}</strong></div>
-                <div><span>Maintenance</span><strong>{formatCurrency(property.maintenance)}</strong></div>
-                <div><span>Bathrooms</span><strong>{property.bathrooms || '—'}</strong></div>
-                <div><span>Balconies</span><strong>{property.balconies || '—'}</strong></div>
-                <div><span>Area</span><strong>{property.sq_ft ? `${property.sq_ft} sq ft` : '—'}</strong></div>
-                <div><span>Available from</span><strong>{property.available_from || '—'}</strong></div>
-                <div><span>Sub locality</span><strong>{property.sub_locality || '—'}</strong></div>
-                <div><span>Furnishing</span><strong>{property.furnishing_status || '—'}</strong></div>
-              </div>
-            </div>
-          ) : (
-            <div className="locked-card">
-              <strong>Partner account</strong>
-              <div className="locked-card-actions">
-                <Link to="/partner-area" className="button ghost">Go to Partner Area</Link>
+          {/* Property details grid — shown BELOW media on mobile, inside left col on desktop */}
+          {isRenter && (
+            <div className="detail-specs-card">
+              <h3 className="detail-specs-heading">Property details</h3>
+              <div className="detail-specs-grid">
+                {detailFields.map(({ label, value }) => (
+                  <div key={label} className="detail-spec-cell">
+                    <span className="detail-spec-label">{label}</span>
+                    <strong className="detail-spec-value">{value}</strong>
+                  </div>
+                ))}
               </div>
             </div>
           )}
         </div>
-      </section>
+
+        {/* RIGHT — info + actions */}
+        <div className="detail-info-col">
+          {/* Property header */}
+          <div className="detail-side-card">
+            <p className="eyebrow detail-eyebrow">Denner property</p>
+            <h1 className="detail-title">{property.society_name}</h1>
+            <p className="detail-location">{property.locality}, {property.city}</p>
+
+            {/* Price row */}
+            <div className="detail-price-row">
+              <div className="detail-price">{formatCurrency(property.monthly_rent)}<span className="detail-price-unit">/mo</span></div>
+              <SavePropertyButton property={property} />
+            </div>
+
+            {/* Tags */}
+            {(property.highlights || []).length > 0 && (
+              <div className="detail-tags">
+                {(property.highlights || []).map((item) => (
+                  <span key={item} className="detail-tag">{item}</span>
+                ))}
+              </div>
+            )}
+
+            {/* Description */}
+            {property.description && (
+              <p className="detail-copy">{property.description}</p>
+            )}
+
+            {/* Action buttons */}
+            <div className="detail-cta-group">
+              <button type="button" className="button ghost detail-cta-btn" onClick={handleShare}>
+                <svg width="15" height="15" viewBox="0 0 15 15" fill="none" style={{ flexShrink: 0 }}>
+                  <path d="M10.5 1.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm-7 3a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm7 5a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm-6.29-1.85 5.08-2.54M4.21 9.35l5.08 2.54" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                </svg>
+                Share
+              </button>
+
+              {isRenter ? (
+                <button type="button" className="button primary detail-cta-btn" onClick={() => setShowVisitModal(true)}>
+                  Schedule visit
+                </button>
+              ) : (
+                <Link to="/login" state={{ from: location.pathname }} className="button primary detail-cta-btn">
+                  Log in to schedule
+                </Link>
+              )}
+            </div>
+
+            {shareMessage && (
+              <p className="detail-share-msg">{shareMessage}</p>
+            )}
+          </div>
+
+          {/* Auth gate card */}
+          {!isAuthenticated ? (
+            <div className="detail-gate-card">
+              <div className="detail-gate-lock">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <rect x="3" y="7" width="10" height="8" rx="2" stroke="currentColor" strokeWidth="1.4"/>
+                  <path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                </svg>
+              </div>
+              <div>
+                <strong className="detail-gate-title">Full details unlock after login</strong>
+                <p className="detail-gate-sub">See deposit, contact, and schedule a visit.</p>
+              </div>
+              <div className="detail-gate-actions">
+                <Link to="/login" state={{ from: location.pathname }} className="button primary">Log in</Link>
+                <Link to="/signup" state={{ from: location.pathname }} className="button ghost">Sign up</Link>
+              </div>
+            </div>
+          ) : !isRenter ? (
+            <div className="detail-gate-card">
+              <strong className="detail-gate-title">Partner account</strong>
+              <p className="detail-gate-sub">Visit requests are for renter accounts only.</p>
+              <Link to="/partner-area" className="button ghost" style={{ alignSelf: 'flex-start' }}>Partner Area</Link>
+            </div>
+          ) : null}
+
+          {/* Specs card — shown here on tablet/mobile, hidden on desktop (shown under media col instead) */}
+          {isRenter && (
+            <div className="detail-specs-card detail-specs-card-inline">
+              <h3 className="detail-specs-heading">Property details</h3>
+              <div className="detail-specs-grid">
+                {detailFields.map(({ label, value }) => (
+                  <div key={label} className="detail-spec-cell">
+                    <span className="detail-spec-label">{label}</span>
+                    <strong className="detail-spec-value">{value}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
 
       <RequestVisitModal
         open={showVisitModal}
         onClose={() => setShowVisitModal(false)}
         property={property}
-        onSuccess={() => setShareMessage('Visit request created. WhatsApp is ready.')}
+        onSuccess={() => setShareMessage('Visit request sent. WhatsApp opening…')}
       />
     </div>
   );

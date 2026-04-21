@@ -156,8 +156,8 @@ export default function UrgentHelpPage() {
   return (
     <div className="page-shell">
       <section className="container urgent-hero-card compact-hero-card polished-card">
-        <div className="eyebrow">Urgent help</div>
-        <h1>Need a home in the next 5 days?</h1>
+        <p className="eyebrow">Priority support</p>
+        <h1 className="page-title">Need a home in the next 5 days?</h1>
         <p>Share your core requirements and let Denner Ops prioritise your search.</p>
         {!isAuthenticated ? (
           <div className="hero-actions">

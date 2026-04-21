@@ -16,9 +16,36 @@ import { PublicPropertiesProvider } from '../services/publicPropertiesContext.js
 function ProtectedRoute({ children, requiredRole }) {
   const { loading, isAuthenticated, profile } = useAuth();
 
-  if (loading) return <div className="page-shell"><p>Loading account...</p></div>;
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (requiredRole && profile?.role !== requiredRole) return <Navigate to="/" replace />;
+  // Still loading auth session — wait, don't redirect yet
+  if (loading) {
+    return (
+      <div className="page-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <p style={{ color: 'var(--muted)' }}>Loading…</p>
+      </div>
+    );
+  }
+
+  // Not logged in at all
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // Auth session is confirmed but profile hasn't finished loading yet
+  // (profile is null briefly after isAuthenticated turns true)
+  // Wait for profile before checking role — avoids false redirects
+  if (isAuthenticated && !profile) {
+    return (
+      <div className="page-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <p style={{ color: 'var(--muted)' }}>Loading account…</p>
+      </div>
+    );
+  }
+
+  // Profile is loaded — now check the role
+  if (requiredRole && profile.role !== requiredRole) {
+    return <Navigate to="/" replace />;
+  }
+
   return children;
 }
 
