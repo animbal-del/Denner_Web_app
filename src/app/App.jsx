@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { Analytics } from '@vercel/analytics/react';
 import PublicLayout from '../components/PublicLayout.jsx';
 import HomePage from '../pages/HomePage.jsx';
 import LoginPage from '../pages/LoginPage.jsx';
@@ -55,47 +56,50 @@ function BrowseScope({ children }) {
 
 export default function App() {
   return (
-    <Routes>
-      <Route element={<PublicLayout />}>
-        <Route path="/" element={<BrowseScope><HomePage /></BrowseScope>} />
-        <Route path="/properties" element={<BrowseScope><PropertiesPage /></BrowseScope>} />
-        <Route path="/property/:shareCode" element={<BrowseScope><PropertyDetailPage /></BrowseScope>} />
-        <Route path="/urgent-help" element={<UrgentHelpPage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/signup" element={<SignupPage />} />
-        <Route
-          path="/account"
-          element={
-            <ProtectedRoute requiredRole="user">
-              <AccountPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/profile"
-          element={
-            <ProtectedRoute requiredRole="user">
-              <ProfilePage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/liked"
-          element={
-            <ProtectedRoute requiredRole="user">
-              <LikedPropertiesPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/partner-area"
-          element={
-            <ProtectedRoute requiredRole="partner">
-              <PartnerAreaPage />
-            </ProtectedRoute>
-          }
-        />
-      </Route>
-    </Routes>
+    <>
+      <Routes>
+        <Route element={<PublicLayout />}>
+          <Route path="/" element={<BrowseScope><HomePage /></BrowseScope>} />
+          <Route path="/properties" element={<BrowseScope><PropertiesPage /></BrowseScope>} />
+          <Route path="/property/:shareCode" element={<BrowseScope><PropertyDetailPage /></BrowseScope>} />
+          <Route path="/urgent-help" element={<UrgentHelpPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
+          <Route
+            path="/account"
+            element={
+              <ProtectedRoute requiredRole="user">
+                <AccountPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute requiredRole="user">
+                <ProfilePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/liked"
+            element={
+              <ProtectedRoute requiredRole="user">
+                <LikedPropertiesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/partner-area"
+            element={
+              <ProtectedRoute requiredRole="partner">
+                <PartnerAreaPage />
+              </ProtectedRoute>
+            }
+          />
+        </Route>
+      </Routes>
+      <Analytics />
+    </>
   );
 }
