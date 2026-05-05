@@ -357,10 +357,8 @@ async function fetchSupabasePropertiesPage(page = 1, pageSize = PUBLIC_PAGE_SIZE
   const end = start + pageSize;
 
   const { data, error } = await supabase
-    .from('inventory_flats')
+    .from('public_listings')
     .select(PUBLIC_SELECT)
-    .eq('listing_status', 'live')
-    .eq('business_status', 'available')
     .order('updated_at', { ascending: false })
     .range(start, end);
   if (error) throw error;
@@ -397,11 +395,9 @@ async function fetchSupabasePropertyByRef(propertyRef) {
   if (flatIdMatch) {
     const flatId = Number(flatIdMatch[1]);
     const { data, error } = await supabase
-      .from('inventory_flats')
+      .from('public_listings')
       .select(PUBLIC_SELECT)
       .eq('id', flatId)
-      .eq('listing_status', 'live')
-      .eq('business_status', 'available')
       .maybeSingle();
     if (error) throw error;
     row = data;
@@ -417,11 +413,9 @@ async function fetchSupabasePropertyByRef(propertyRef) {
     shareCode = linkRow.share_code;
 
     const { data, error } = await supabase
-      .from('inventory_flats')
+      .from('public_listings')
       .select(PUBLIC_SELECT)
       .eq('id', linkRow.flat_id)
-      .eq('listing_status', 'live')
-      .eq('business_status', 'available')
       .maybeSingle();
     if (error) throw error;
     row = data;
@@ -448,11 +442,9 @@ export async function fetchPreviewPropertiesByIds(flatIds = []) {
   if (!ids.length) return [];
 
   const { data, error } = await supabase
-    .from('inventory_flats')
+    .from('public_listings')
     .select(PUBLIC_SELECT)
-    .in('id', ids)
-    .eq('listing_status', 'live')
-    .eq('business_status', 'available');
+    .in('id', ids);
   if (error) throw error;
 
   const rows = data || [];
@@ -486,10 +478,8 @@ export function getCoverImage(property) {
 export async function getFilterOptions() {
   if (!hasSupabase) throw new Error('Supabase is not configured.');
   const { data, error } = await supabase
-    .from('inventory_flats')
+    .from('public_listings')
     .select('city, locality, property_type, furnishing_status, monthly_rent')
-    .eq('listing_status', 'live')
-    .eq('business_status', 'available')
     .limit(2000);
   if (error) throw error;
 
@@ -514,10 +504,8 @@ export async function getFilterOptions() {
 export async function getAvailableLocalities() {
   if (!hasSupabase) throw new Error('Supabase is not configured.');
   const { data, error } = await supabase
-    .from('inventory_flats')
+    .from('public_listings')
     .select('locality')
-    .eq('listing_status', 'live')
-    .eq('business_status', 'available')
     .not('locality', 'is', null)
     .order('locality', { ascending: true })
     .limit(1000);
@@ -532,10 +520,8 @@ export async function getRentBoundsForLocalities(localities = []) {
   ].slice(0, 3);
 
   let query = supabase
-    .from('inventory_flats')
+    .from('public_listings')
     .select('monthly_rent')
-    .eq('listing_status', 'live')
-    .eq('business_status', 'available')
     .not('monthly_rent', 'is', null)
     .order('monthly_rent', { ascending: true })
     .limit(1000);
