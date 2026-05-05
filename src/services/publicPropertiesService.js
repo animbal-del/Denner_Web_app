@@ -487,7 +487,7 @@ export async function getFilterOptions() {
   if (!hasSupabase) throw new Error('Supabase is not configured.');
   const { data, error } = await supabase
     .from('inventory_flats')
-    .select('city, locality, property_type, furnishing_status')
+    .select('city, locality, property_type, furnishing_status, monthly_rent')
     .eq('listing_status', 'live')
     .eq('business_status', 'available')
     .limit(2000);
@@ -497,11 +497,17 @@ export async function getFilterOptions() {
   const unique = (key) =>
     [...new Set(rows.map((r) => String(r[key] || '').trim()).filter(Boolean))].sort();
 
+  const rents = rows
+    .map((r) => Number(r.monthly_rent))
+    .filter((v) => Number.isFinite(v) && v > 0)
+    .sort((a, b) => a - b);
+
   return {
     cities: unique('city'),
     localities: unique('locality'),
     propertyTypes: unique('property_type'),
     furnishingStatuses: unique('furnishing_status'),
+    rentBounds: rents.length ? { min: rents[0], max: rents[rents.length - 1] } : { min: 0, max: 0 },
   };
 }
 

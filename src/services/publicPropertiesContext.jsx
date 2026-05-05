@@ -11,7 +11,7 @@ export function PublicPropertiesProvider({ children }) {
   const [loadedAt, setLoadedAt] = useState(null);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
-  const [filterOptions, setFilterOptions] = useState({ cities: [], localities: [], propertyTypes: [], furnishingStatuses: [] });
+  const [filterOptions, setFilterOptions] = useState({ cities: [], localities: [], propertyTypes: [], furnishingStatuses: [], rentBounds: { min: 0, max: 0 } });
   const bootstrapped = useRef(false);
 
   const loadPage = useCallback(async (targetPage, mode = 'replace') => {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import PropertyCard from '../components/PropertyCard.jsx';
 import { usePublicProperties } from '../services/publicPropertiesContext.jsx';
+import { getRentBoundsForLocalities } from '../services/publicPropertiesService.js';
 import NativeSelect from '../components/NativeSelect.jsx';
 import DualRangeSlider from '../components/DualRangeSlider.jsx';
 const BHK_OPTIONS = ['1', '1.5', '2', '2.5', '3', '3.5', '4+'];
@@ -41,22 +42,6 @@ function matchesBhkOption(itemBhk, selectedBhk) {
   return numericBhk === Number(selectedBhk);
 }
 
-function getBudgetBounds(items) {
-  const rents = items
-    .map((item) => getNumericRent(item.monthly_rent))
-    .filter((rent) => rent > 0)
-    .sort((a, b) => a - b);
-
-  if (!rents.length) {
-    return { min: 0, max: 0 };
-  }
-
-  return {
-    min: rents[0],
-    max: rents[rents.length - 1],
-  };
-}
-
 function formatCurrency(value) {
   if (!value) return '₹0';
   return `₹${Number(value).toLocaleString('en-IN')}`;
@@ -78,34 +63,28 @@ export default function PropertiesPage() {
     filterOptions,
   } = usePublicProperties();
 
-  const { cities, localities, propertyTypes, furnishingStatuses } = filterOptions;
+  const { cities, localities, propertyTypes, furnishingStatuses, rentBounds } = filterOptions;
 
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [search, setSearch] = useState('');
   const [budgetRange, setBudgetRange] = useState({ min: 0, max: 0 });
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [localityRentBounds, setLocalityRentBounds] = useState({ min: 0, max: 0 });
 
-  const overallBudgetBounds = useMemo(() => getBudgetBounds(items), [items]);
-
-  const localityMatchedItems = useMemo(() => {
-    if (!filters.locality) return [];
-
-    return items.filter(
-      (item) => normalizeValue(item.locality) === normalizeValue(filters.locality)
-    );
-  }, [items, filters.locality]);
-
-  const localityBudgetBounds = useMemo(
-    () => getBudgetBounds(localityMatchedItems),
-    [localityMatchedItems]
-  );
+  useEffect(() => {
+    if (!filters.locality) {
+      setLocalityRentBounds({ min: 0, max: 0 });
+      return;
+    }
+    getRentBoundsForLocalities([filters.locality])
+      .then(setLocalityRentBounds)
+      .catch(() => setLocalityRentBounds({ min: 0, max: 0 }));
+  }, [filters.locality]);
 
   const activeBudgetBounds = useMemo(() => {
-    if (filters.locality && localityBudgetBounds.max) {
-      return localityBudgetBounds;
-    }
-    return overallBudgetBounds;
-  }, [filters.locality, localityBudgetBounds, overallBudgetBounds]);
+    if (filters.locality && localityRentBounds.max) return localityRentBounds;
+    return rentBounds;
+  }, [filters.locality, localityRentBounds, rentBounds]);
 
   useEffect(() => {
     setBudgetRange((current) => {
@@ -243,7 +222,7 @@ export default function PropertiesPage() {
   function clearAllFilters() {
     setFilters(INITIAL_FILTERS);
     setSearch('');
-    setBudgetRange({ min: overallBudgetBounds.min, max: overallBudgetBounds.max });
+    setBudgetRange({ min: rentBounds.min, max: rentBounds.max });
   }
 
   function clearSingleFilter(key, value) {
