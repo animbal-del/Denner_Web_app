@@ -483,6 +483,28 @@ export function getCoverImage(property) {
   return property?.media?.[0]?.url || '';
 }
 
+export async function getFilterOptions() {
+  if (!hasSupabase) throw new Error('Supabase is not configured.');
+  const { data, error } = await supabase
+    .from('inventory_flats')
+    .select('city, locality, property_type, furnishing_status')
+    .eq('listing_status', 'live')
+    .eq('business_status', 'available')
+    .limit(2000);
+  if (error) throw error;
+
+  const rows = data || [];
+  const unique = (key) =>
+    [...new Set(rows.map((r) => String(r[key] || '').trim()).filter(Boolean))].sort();
+
+  return {
+    cities: unique('city'),
+    localities: unique('locality'),
+    propertyTypes: unique('property_type'),
+    furnishingStatuses: unique('furnishing_status'),
+  };
+}
+
 export async function getAvailableLocalities() {
   if (!hasSupabase) throw new Error('Supabase is not configured.');
   const { data, error } = await supabase

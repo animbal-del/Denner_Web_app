@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import PropertyCard from '../components/PropertyCard.jsx';
 import { usePublicProperties } from '../services/publicPropertiesContext.jsx';
 import NativeSelect from '../components/NativeSelect.jsx';
-
+import DualRangeSlider from '../components/DualRangeSlider.jsx';
 const BHK_OPTIONS = ['1', '1.5', '2', '2.5', '3', '3.5', '4+'];
 
 const INITIAL_FILTERS = {
@@ -75,32 +75,15 @@ export default function PropertiesPage() {
     refreshProperties,
     loadMore,
     hasMore,
+    filterOptions,
   } = usePublicProperties();
+
+  const { cities, localities, propertyTypes, furnishingStatuses } = filterOptions;
 
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [search, setSearch] = useState('');
   const [budgetRange, setBudgetRange] = useState({ min: 0, max: 0 });
   const [filtersOpen, setFiltersOpen] = useState(false);
-
-  const cities = useMemo(
-    () => [...new Set(items.map((item) => item.city).filter(Boolean))].sort(),
-    [items]
-  );
-
-  const localities = useMemo(
-    () => [...new Set(items.map((item) => item.locality).filter(Boolean))].sort(),
-    [items]
-  );
-
-  const propertyTypes = useMemo(
-    () => [...new Set(items.map((item) => item.property_type).filter(Boolean))].sort(),
-    [items]
-  );
-
-  const furnishingOptions = useMemo(
-    () => [...new Set(items.map((item) => item.furnishing_status).filter(Boolean))].sort(),
-    [items]
-  );
 
   const overallBudgetBounds = useMemo(() => getBudgetBounds(items), [items]);
 
@@ -384,7 +367,7 @@ export default function PropertiesPage() {
 
               <NativeSelect label="Furnishing" value={filters.furnishingStatus} onChange={(e) => updateFilter('furnishingStatus', e.target.value)}>
                 <option value="">Any furnishing</option>
-                {furnishingOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                {furnishingStatuses.map((option) => <option key={option} value={option}>{option}</option>)}
               </NativeSelect>
 
               <NativeSelect label="Sort by" value={filters.sortBy} onChange={(e) => updateFilter('sortBy', e.target.value)}>
@@ -418,42 +401,16 @@ export default function PropertiesPage() {
                     <span className="budget-val">{formatCurrency(budgetRange.max)}</span>
                   </div>
                 </div>
-                <div className="dual-range-wrap">
-                  {/* Track background */}
-                  <div className="dual-range-track">
-                    <div
-                      className="dual-range-fill"
-                      style={{
-                        left: `${((budgetRange.min - activeBudgetBounds.min) / Math.max(activeBudgetBounds.max - activeBudgetBounds.min, 1)) * 100}%`,
-                        right: `${100 - ((budgetRange.max - activeBudgetBounds.min) / Math.max(activeBudgetBounds.max - activeBudgetBounds.min, 1)) * 100}%`,
-                      }}
-                    />
-                  </div>
-                  <input
-                    className="dual-range dual-range-min"
-                    type="range"
-                    min={activeBudgetBounds.min}
-                    max={activeBudgetBounds.max}
-                    step="500"
-                    value={budgetRange.min}
-                    onChange={(e) => handleBudgetMinChange(e.target.value)}
-                    aria-label="Minimum budget"
-                  />
-                  <input
-                    className="dual-range dual-range-max"
-                    type="range"
-                    min={activeBudgetBounds.min}
-                    max={activeBudgetBounds.max}
-                    step="500"
-                    value={budgetRange.max}
-                    onChange={(e) => handleBudgetMaxChange(e.target.value)}
-                    aria-label="Maximum budget"
-                  />
-                </div>
-                <div className="dual-range-scale">
-                  <span>{formatCurrency(activeBudgetBounds.min)}</span>
-                  <span>{formatCurrency(activeBudgetBounds.max)}</span>
-                </div>
+                <DualRangeSlider
+                  min={activeBudgetBounds.min}
+                  max={activeBudgetBounds.max}
+                  valueMin={budgetRange.min}
+                  valueMax={budgetRange.max}
+                  onMinChange={(v) => handleBudgetMinChange(v)}
+                  onMaxChange={(v) => handleBudgetMaxChange(v)}
+                  formatValue={formatCurrency}
+                  step={500}
+                />
               </div>
             )}
 

@@ -4,6 +4,7 @@ import { updateUserProfile } from '../services/profileSettingsService.js';
 import { buildEmptyPreferences, getUserPreferences, upsertUserPreferences } from '../services/userPreferencesService.js';
 import { getAvailableLocalities, getRentBoundsForLocalities } from '../services/publicPropertiesService.js';
 import SearchableSelect from '../components/SearchableSelect.jsx';
+import DualRangeSlider from '../components/DualRangeSlider.jsx';
 
 function normalizeLocalities(values = []) {
   return [...new Set((values || []).map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 3);
@@ -255,11 +256,18 @@ export default function ProfilePage() {
                 </div>
 
                 <div className="budget-slider-stack">
-                  <div className="budget-slider-wrap">
-                    <div className="budget-slider-fill" style={{ left: sliderEnabled ? `${((budgetRange.min - bounds.min) / denominator) * 100}%` : '0%', right: sliderEnabled ? `${100 - ((budgetRange.max - bounds.min) / denominator) * 100}%` : '0%' }} />
-                    <input className="budget-slider budget-slider-min" type="range" min={sliderEnabled ? bounds.min : 0} max={sliderEnabled ? bounds.max : 100} step="500" value={sliderEnabled ? budgetRange.min : 0} disabled={!editingPreferences || !sliderEnabled} onChange={(e) => updateBudgetMin(Number(e.target.value))} />
-                    <input className="budget-slider budget-slider-max" type="range" min={sliderEnabled ? bounds.min : 0} max={sliderEnabled ? bounds.max : 100} step="500" value={sliderEnabled ? budgetRange.max : 100} disabled={!editingPreferences || !sliderEnabled} onChange={(e) => updateBudgetMax(Number(e.target.value))} />
-                  </div>
+                  {sliderEnabled && editingPreferences && (
+                    <DualRangeSlider
+                      min={bounds.min}
+                      max={bounds.max}
+                      valueMin={budgetRange.min}
+                      valueMax={budgetRange.max}
+                      onMinChange={updateBudgetMin}
+                      onMaxChange={updateBudgetMax}
+                      formatValue={formatCurrency}
+                      step={500}
+                    />
+                  )}
                   <div className="budget-slider-scale"><span>{formatCurrency(sliderEnabled ? bounds.min : 0)}</span><span>{formatCurrency(sliderEnabled ? bounds.max : 0)}</span></div>
                 </div>
               </div>

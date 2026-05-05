@@ -5,6 +5,7 @@ import { createVisitRequest, getExistingVisitRequest } from '../services/visitRe
 import { buildEmptyPreferences, getUserPreferences, upsertUserPreferences } from '../services/userPreferencesService.js';
 import { getAvailableLocalities, getRentBoundsForLocalities } from '../services/publicPropertiesService.js';
 import SearchableSelect from './SearchableSelect.jsx';
+import DualRangeSlider from './DualRangeSlider.jsx';
 
 function normalizeLocalities(values = []) {
   return [...new Set((values || []).map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 3);
@@ -331,17 +332,18 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
                   <input type="number" min={sliderEnabled ? bounds.min : 0} max={sliderEnabled ? bounds.max : 0} value={sliderEnabled ? budgetRange.max : ''} onChange={(event) => updateBudgetMax(Number(event.target.value || 0))} />
                 </label>
               </div>
-              <div className="budget-slider-stack">
-                <div className="budget-slider-wrap" aria-hidden="true">
-                  <div className="budget-slider-fill" style={{ left: `${((budgetRange.min - bounds.min) / denominator) * 100}%`, right: `${100 - ((budgetRange.max - bounds.min) / denominator) * 100}%` }} />
-                  <input className="budget-slider budget-slider-min" type="range" min={sliderEnabled ? bounds.min : 0} max={sliderEnabled ? bounds.max : 0} step="500" value={sliderEnabled ? budgetRange.min : 0} onChange={(event) => updateBudgetMin(Number(event.target.value))} disabled={!sliderEnabled} />
-                  <input className="budget-slider budget-slider-max" type="range" min={sliderEnabled ? bounds.min : 0} max={sliderEnabled ? bounds.max : 0} step="500" value={sliderEnabled ? budgetRange.max : 0} onChange={(event) => updateBudgetMax(Number(event.target.value))} disabled={!sliderEnabled} />
-                </div>
-                <div className="budget-slider-scale">
-                  <span>{formatCurrency(sliderEnabled ? bounds.min : 0)}</span>
-                  <span>{formatCurrency(sliderEnabled ? bounds.max : 0)}</span>
-                </div>
-              </div>
+              {sliderEnabled && (
+                <DualRangeSlider
+                  min={bounds.min}
+                  max={bounds.max}
+                  valueMin={budgetRange.min}
+                  valueMax={budgetRange.max}
+                  onMinChange={updateBudgetMin}
+                  onMaxChange={updateBudgetMax}
+                  formatValue={formatCurrency}
+                  step={500}
+                />
+              )}
             </div>
 
             {error ? <div className="form-feedback error">{error}</div> : null}

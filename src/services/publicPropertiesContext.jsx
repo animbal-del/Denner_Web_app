@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { getPreviewPropertiesPage, PUBLIC_PAGE_SIZE } from './publicPropertiesService.js';
+import { getPreviewPropertiesPage, getFilterOptions, PUBLIC_PAGE_SIZE } from './publicPropertiesService.js';
 
 const PublicPropertiesContext = createContext(null);
 
@@ -11,6 +11,7 @@ export function PublicPropertiesProvider({ children }) {
   const [loadedAt, setLoadedAt] = useState(null);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
+  const [filterOptions, setFilterOptions] = useState({ cities: [], localities: [], propertyTypes: [], furnishingStatuses: [] });
   const bootstrapped = useRef(false);
 
   const loadPage = useCallback(async (targetPage, mode = 'replace') => {
@@ -50,6 +51,7 @@ export function PublicPropertiesProvider({ children }) {
     if (bootstrapped.current) return;
     bootstrapped.current = true;
     loadPage(1, 'replace');
+    getFilterOptions().then(setFilterOptions).catch(() => {});
   }, [loadPage]);
 
   const value = useMemo(() => ({
@@ -62,7 +64,8 @@ export function PublicPropertiesProvider({ children }) {
     loadMore,
     hasMore,
     page,
-  }), [properties, loading, loadingMore, error, loadedAt, refreshProperties, loadMore, hasMore, page]);
+    filterOptions,
+  }), [properties, loading, loadingMore, error, loadedAt, refreshProperties, loadMore, hasMore, page, filterOptions]);
 
   return <PublicPropertiesContext.Provider value={value}>{children}</PublicPropertiesContext.Provider>;
 }
