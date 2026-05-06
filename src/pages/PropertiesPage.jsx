@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import PropertyCard from '../components/PropertyCard.jsx';
 import { usePublicProperties } from '../services/publicPropertiesContext.jsx';
-import { getRentBoundsForLocalities } from '../services/publicPropertiesService.js';
+import { fetchPropertiesForLocalities, getRentBoundsForLocalities } from '../services/publicPropertiesService.js';
 import NativeSelect from '../components/NativeSelect.jsx';
+import LocalityMultiSelect from '../components/LocalityMultiSelect.jsx';
 import DualRangeSlider from '../components/DualRangeSlider.jsx';
+
 const BHK_OPTIONS = ['1', '1.5', '2', '2.5', '3', '3.5', '4+'];
 
 const INITIAL_FILTERS = {
   city: '',
-  locality: '',
+  localities: [],
   bhk: '',
   propertyType: '',
   furnishingStatus: '',
@@ -31,14 +33,9 @@ function extractBhkNumber(value) {
 
 function matchesBhkOption(itemBhk, selectedBhk) {
   if (!selectedBhk) return true;
-
   const numericBhk = extractBhkNumber(itemBhk);
   if (numericBhk === null) return false;
-
-  if (selectedBhk === '4+') {
-    return numericBhk >= 4;
-  }
-
+  if (selectedBhk === '4+') return numericBhk >= 4;
   return numericBhk === Number(selectedBhk);
 }
 
@@ -53,7 +50,7 @@ function getBhkLabel(value) {
 
 export default function PropertiesPage() {
   const {
-    properties: items,
+    properties: paginatedItems,
     loading,
     loadingMore,
     error,
@@ -69,47 +66,55 @@ export default function PropertiesPage() {
   const [search, setSearch] = useState('');
   const [budgetRange, setBudgetRange] = useState({ min: 0, max: 0 });
   const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // When localities are selected, fetch all matching properties from backend (bypass pagination)
+  const [localityItems, setLocalityItems] = useState([]);
+  const [localityLoading, setLocalityLoading] = useState(false);
+
+  useEffect(() => {
+    if (!filters.localities.length) {
+      setLocalityItems([]);
+      return;
+    }
+    let cancelled = false;
+    setLocalityLoading(true);
+    fetchPropertiesForLocalities(filters.localities)
+      .then((results) => { if (!cancelled) setLocalityItems(results); })
+      .catch(() => { if (!cancelled) setLocalityItems([]); })
+      .finally(() => { if (!cancelled) setLocalityLoading(false); });
+    return () => { cancelled = true; };
+  }, [filters.localities]);
+
+  // Base items: use locality-fetched results when localities selected, else paginated
+  const baseItems = filters.localities.length ? localityItems : paginatedItems;
+
+  // Budget bounds — fetch from backend for selected localities; fall back to global
   const [localityRentBounds, setLocalityRentBounds] = useState({ min: 0, max: 0 });
 
   useEffect(() => {
-    if (!filters.locality) {
+    if (!filters.localities.length) {
       setLocalityRentBounds({ min: 0, max: 0 });
       return;
     }
-    getRentBoundsForLocalities([filters.locality])
+    getRentBoundsForLocalities(filters.localities)
       .then(setLocalityRentBounds)
       .catch(() => setLocalityRentBounds({ min: 0, max: 0 }));
-  }, [filters.locality]);
+  }, [filters.localities]);
 
   const activeBudgetBounds = useMemo(() => {
-    if (filters.locality && localityRentBounds.max) return localityRentBounds;
+    if (filters.localities.length && localityRentBounds.max) return localityRentBounds;
     return rentBounds;
-  }, [filters.locality, localityRentBounds, rentBounds]);
+  }, [filters.localities, localityRentBounds, rentBounds]);
 
+  // Fix 3: reset slider to the new bounds whenever active bounds change (locality switch)
   useEffect(() => {
-    setBudgetRange((current) => {
-      const nextMin = activeBudgetBounds.min;
-      const nextMax = activeBudgetBounds.max;
-
-      if (!nextMin && !nextMax) {
-        return { min: 0, max: 0 };
-      }
-
-      const startingMin = current.min || nextMin;
-      const startingMax = current.max || nextMax;
-      const clampedMin = Math.min(Math.max(startingMin, nextMin), nextMax);
-      const clampedMax = Math.max(Math.min(startingMax, nextMax), clampedMin);
-
-      if (clampedMin === current.min && clampedMax === current.max) {
-        return current;
-      }
-
-      return { min: clampedMin, max: clampedMax };
-    });
+    if (activeBudgetBounds.max) {
+      setBudgetRange({ min: activeBudgetBounds.min, max: activeBudgetBounds.max });
+    }
   }, [activeBudgetBounds.min, activeBudgetBounds.max]);
 
   const filtered = useMemo(() => {
-    const base = items.filter((item) => {
+    const base = baseItems.filter((item) => {
       const haystack = [
         item.society_name,
         item.locality,
@@ -129,8 +134,8 @@ export default function PropertiesPage() {
         !filters.city || normalizeValue(item.city) === normalizeValue(filters.city);
 
       const localityMatch =
-        !filters.locality ||
-        normalizeValue(item.locality) === normalizeValue(filters.locality);
+        !filters.localities.length ||
+        filters.localities.some((loc) => normalizeValue(item.locality) === normalizeValue(loc));
 
       const bhkMatch = matchesBhkOption(item.bhk, filters.bhk);
 
@@ -146,27 +151,17 @@ export default function PropertiesPage() {
       const budgetMatch =
         !activeBudgetBounds.max || (rent >= budgetRange.min && rent <= budgetRange.max);
 
-      return (
-        searchMatch &&
-        cityMatch &&
-        localityMatch &&
-        bhkMatch &&
-        propertyTypeMatch &&
-        furnishingMatch &&
-        budgetMatch
-      );
+      return searchMatch && cityMatch && localityMatch && bhkMatch && propertyTypeMatch && furnishingMatch && budgetMatch;
     });
 
     const sorted = [...base];
-
     if (filters.sortBy === 'rent-low') {
       sorted.sort((a, b) => getNumericRent(a.monthly_rent) - getNumericRent(b.monthly_rent));
     } else if (filters.sortBy === 'rent-high') {
       sorted.sort((a, b) => getNumericRent(b.monthly_rent) - getNumericRent(a.monthly_rent));
     }
-
     return sorted;
-  }, [items, filters, search, budgetRange, activeBudgetBounds.max]);
+  }, [baseItems, filters, search, budgetRange, activeBudgetBounds.max]);
 
   const budgetChanged =
     activeBudgetBounds.max &&
@@ -174,32 +169,26 @@ export default function PropertiesPage() {
 
   const activeFilterCount = useMemo(() => {
     let count = search ? 1 : 0;
-
-    Object.entries(filters).forEach(([key, value]) => {
-      if (key === 'sortBy') {
-        if (value !== 'newest') count += 1;
-        return;
-      }
-      if (value) count += 1;
-    });
-
+    count += filters.localities.length;
+    if (filters.city) count += 1;
+    if (filters.bhk) count += 1;
+    if (filters.propertyType) count += 1;
+    if (filters.furnishingStatus) count += 1;
+    if (filters.sortBy !== 'newest') count += 1;
     if (budgetChanged) count += 1;
-
     return count;
   }, [filters, search, budgetChanged]);
 
   const activeFilterPills = useMemo(() => {
     const pills = [];
-
     if (filters.city) pills.push({ key: 'city', label: filters.city, value: '' });
-    if (filters.locality) pills.push({ key: 'locality', label: filters.locality, value: '' });
+    // One pill per selected locality
+    filters.localities.forEach((loc) =>
+      pills.push({ key: 'locality', label: loc, value: loc })
+    );
     if (filters.bhk) pills.push({ key: 'bhk', label: getBhkLabel(filters.bhk), value: '' });
-    if (filters.propertyType) {
-      pills.push({ key: 'propertyType', label: filters.propertyType, value: '' });
-    }
-    if (filters.furnishingStatus) {
-      pills.push({ key: 'furnishingStatus', label: filters.furnishingStatus, value: '' });
-    }
+    if (filters.propertyType) pills.push({ key: 'propertyType', label: filters.propertyType, value: '' });
+    if (filters.furnishingStatus) pills.push({ key: 'furnishingStatus', label: filters.furnishingStatus, value: '' });
     if (filters.sortBy !== 'newest') {
       pills.push({ key: 'sortBy', label: filters.sortBy === 'rent-low' ? 'Rent: low to high' : 'Rent: high to low', value: 'newest' });
     }
@@ -207,11 +196,10 @@ export default function PropertiesPage() {
     if (budgetChanged) {
       pills.push({
         key: 'budget',
-        label: `${formatCurrency(budgetRange.min)} - ${formatCurrency(budgetRange.max)}`,
+        label: `${formatCurrency(budgetRange.min)} – ${formatCurrency(budgetRange.max)}`,
         value: null,
       });
     }
-
     return pills;
   }, [filters, search, budgetChanged, budgetRange]);
 
@@ -226,16 +214,16 @@ export default function PropertiesPage() {
   }
 
   function clearSingleFilter(key, value) {
-    if (key === 'search') {
-      setSearch('');
-      return;
-    }
-
+    if (key === 'search') { setSearch(''); return; }
     if (key === 'budget') {
       setBudgetRange({ min: activeBudgetBounds.min, max: activeBudgetBounds.max });
       return;
     }
-
+    if (key === 'locality') {
+      // value here is the specific locality label to remove
+      setFilters((prev) => ({ ...prev, localities: prev.localities.filter((l) => l !== value) }));
+      return;
+    }
     setFilters((prev) => ({ ...prev, [key]: value }));
   }
 
@@ -256,6 +244,8 @@ export default function PropertiesPage() {
   }
 
   const showBudgetSlider = Boolean(activeBudgetBounds.max);
+  const isLocalityLoading = localityLoading;
+  const showLoadMore = !filters.localities.length && !loading && !error && hasMore;
 
   return (
     <div className="page-shell">
@@ -286,10 +276,9 @@ export default function PropertiesPage() {
 
             <div className="toolbar-actions">
               <div className="results-chip">{filtered.length} shown</div>
-              {/* Mobile: Filter toggle button */}
               <button
                 className={`filter-toggle-btn${filtersOpen ? ' active' : ''}${activeFilterCount ? ' has-active' : ''}`}
-                onClick={() => setFiltersOpen(o => !o)}
+                onClick={() => setFiltersOpen((o) => !o)}
                 aria-expanded={filtersOpen}
               >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -298,14 +287,13 @@ export default function PropertiesPage() {
                 Filters
                 {activeFilterCount > 0 && <span className="filter-toggle-badge">{activeFilterCount}</span>}
               </button>
-              {/* Desktop: reset button always visible */}
               <button className="button ghost small clear-filters-btn desktop-only" onClick={clearAllFilters}>
                 Reset
               </button>
             </div>
           </div>
 
-          {/* Active pills — always visible when filters are set */}
+          {/* Active pills */}
           {activeFilterPills.length > 0 && (
             <div className="active-pills-row">
               {activeFilterPills.map((pill) => (
@@ -327,17 +315,17 @@ export default function PropertiesPage() {
 
           {/* ── Collapsible filter body ───────────────────── */}
           <div className={`filter-body${filtersOpen ? ' filter-body--open' : ''}`}>
-            {/* Dropdowns */}
             <div className="filters-grid improved-grid">
               <NativeSelect label="City" value={filters.city} onChange={(e) => updateFilter('city', e.target.value)}>
                 <option value="">All cities</option>
                 {cities.map((city) => <option key={city} value={city}>{city}</option>)}
               </NativeSelect>
 
-              <NativeSelect label="Locality" value={filters.locality} onChange={(e) => updateFilter('locality', e.target.value)}>
-                <option value="">All localities</option>
-                {localities.map((locality) => <option key={locality} value={locality}>{locality}</option>)}
-              </NativeSelect>
+              <LocalityMultiSelect
+                options={localities}
+                selected={filters.localities}
+                onChange={(val) => updateFilter('localities', val)}
+              />
 
               <NativeSelect label="Property type" value={filters.propertyType} onChange={(e) => updateFilter('propertyType', e.target.value)}>
                 <option value="">All types</option>
@@ -369,7 +357,7 @@ export default function PropertiesPage() {
               </div>
             </div>
 
-            {/* Budget slider — redesigned */}
+            {/* Budget slider */}
             {showBudgetSlider && (
               <div className="filter-row-section">
                 <div className="budget-row-head">
@@ -393,7 +381,6 @@ export default function PropertiesPage() {
               </div>
             )}
 
-            {/* Mobile reset button inside panel */}
             <button className="button ghost full mobile-only" onClick={() => { clearAllFilters(); setFiltersOpen(false); }}>
               Reset all filters
             </button>
@@ -402,19 +389,17 @@ export default function PropertiesPage() {
       </section>
 
       <section className="container properties-grid-wrap">
-        {loading ? <div className="empty-state">Loading preview properties…</div> : null}
+        {(loading || isLocalityLoading) ? <div className="empty-state">Loading properties…</div> : null}
 
         {error ? (
           <div className="empty-state">
             <p>{error}</p>
-            <button className="button ghost" onClick={refreshProperties}>
-              Retry
-            </button>
+            <button className="button ghost" onClick={refreshProperties}>Retry</button>
           </div>
         ) : null}
 
-        {!loading && !error && filtered.length === 0 ? (
-          <div className="empty-state">No preview properties found for these filters.</div>
+        {!loading && !isLocalityLoading && !error && filtered.length === 0 ? (
+          <div className="empty-state">No properties found for these filters.</div>
         ) : null}
 
         <div className="properties-grid">
@@ -423,7 +408,7 @@ export default function PropertiesPage() {
           ))}
         </div>
 
-        {!loading && !error && hasMore ? (
+        {showLoadMore ? (
           <div className="listing-more-row">
             <button className="button ghost" onClick={loadMore} disabled={loadingMore}>
               {loadingMore ? 'Loading more…' : 'Load more properties'}

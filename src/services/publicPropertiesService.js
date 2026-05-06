@@ -466,6 +466,32 @@ export async function fetchPreviewPropertiesByIds(flatIds = []) {
   return ordered.map((r) => normalizeProperty(r, coverMediaMap, shareCodeMap));
 }
 
+export async function fetchPropertiesForLocalities(localities = []) {
+  if (!hasSupabase) throw new Error('Supabase is not configured.');
+  const locs = [...new Set((localities || []).map((l) => String(l || '').trim()).filter(Boolean))];
+  if (!locs.length) return [];
+
+  const { data, error } = await supabase
+    .from('public_listings')
+    .select(PUBLIC_SELECT)
+    .in('locality', locs)
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+
+  const rows = data || [];
+  if (!rows.length) return [];
+
+  const flatIds = rows.map((r) => r.id);
+  const coverImageUrlMap = new Map(
+    rows.filter((r) => looksLikeHttpUrl(r.cover_image_url)).map((r) => [r.id, r.cover_image_url])
+  );
+  const [coverMediaMap, shareCodeMap] = await Promise.all([
+    fetchCoverMediaMap(flatIds, coverImageUrlMap),
+    fetchShareCodeMap(flatIds),
+  ]);
+  return rows.map((r) => normalizeProperty(r, coverMediaMap, shareCodeMap));
+}
+
 export async function getPreviewPropertyByShareCode(propertyRef) {
   if (!hasSupabase) throw new Error('Supabase is not configured.');
   return fetchSupabasePropertyByRef(propertyRef);
