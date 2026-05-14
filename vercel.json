@@ -1,11 +1,15 @@
 {
-    "$schema": "https://openapi.vercel.sh/vercel.json",
-    "framework": "vite",
-    "cleanUrls": false,
-    "rewrites": [
-      {
-        "source": "/(.*)",
-        "destination": "/index.html"
-      }
-    ]
-  }
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "cleanUrls": false,
+  "rewrites": [
+    {
+      "source": "/og/:shareCode",
+      "destination": "/api/og?shareCode=:shareCode"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

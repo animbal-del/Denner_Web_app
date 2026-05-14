@@ -4,6 +4,19 @@ import { hasStorageClient, storageClient } from '../lib/storageClient.js';
 const MEDIA_BUCKET = import.meta.env.VITE_SUPABASE_STORAGE_BUCKET || 'property-media';
 const PUBLIC_PAGE_SIZE = 12;
 
+/* ── Module-level TTL cache ────────────────────────────────── */
+const _cache = new Map(); // key → { value, expiresAt }
+
+function cacheGet(key) {
+  const entry = _cache.get(key);
+  if (!entry || Date.now() > entry.expiresAt) { _cache.delete(key); return null; }
+  return entry.value;
+}
+
+function cacheSet(key, value, ttlMs = 5 * 60 * 1000) {
+  _cache.set(key, { value, expiresAt: Date.now() + ttlMs });
+}
+
 /* ── Helpers ───────────────────────────────────────────────── */
 
 function sortMedia(items = []) {
@@ -501,8 +514,39 @@ export function getCoverImage(property) {
   return property?.media?.[0]?.url || '';
 }
 
+export async function fetchAllProperties() {
+  if (!hasSupabase) throw new Error('Supabase is not configured.');
+  const cached = cacheGet('all_properties');
+  if (cached) return cached;
+
+  const { data, error } = await supabase
+    .from('public_listings')
+    .select(PUBLIC_SELECT)
+    .order('updated_at', { ascending: false })
+    .limit(500);
+  if (error) throw error;
+
+  const rows = data || [];
+  if (!rows.length) { cacheSet('all_properties', []); return []; }
+
+  const flatIds = rows.map((r) => r.id);
+  const coverImageUrlMap = new Map(
+    rows.filter((r) => looksLikeHttpUrl(r.cover_image_url)).map((r) => [r.id, r.cover_image_url])
+  );
+  const [coverMediaMap, shareCodeMap] = await Promise.all([
+    fetchCoverMediaMap(flatIds, coverImageUrlMap),
+    fetchShareCodeMap(flatIds),
+  ]);
+  const result = rows.map((r) => normalizeProperty(r, coverMediaMap, shareCodeMap));
+  cacheSet('all_properties', result);
+  return result;
+}
+
 export async function getFilterOptions() {
   if (!hasSupabase) throw new Error('Supabase is not configured.');
+  const cached = cacheGet('filter_options');
+  if (cached) return cached;
+
   const { data, error } = await supabase
     .from('public_listings')
     .select('city, locality, property_type, furnishing_status, monthly_rent')
@@ -518,13 +562,15 @@ export async function getFilterOptions() {
     .filter((v) => Number.isFinite(v) && v > 0)
     .sort((a, b) => a - b);
 
-  return {
+  const result = {
     cities: unique('city'),
     localities: unique('locality'),
     propertyTypes: unique('property_type'),
     furnishingStatuses: unique('furnishing_status'),
     rentBounds: rents.length ? { min: rents[0], max: rents[rents.length - 1] } : { min: 0, max: 0 },
   };
+  cacheSet('filter_options', result);
+  return result;
 }
 
 export async function getAvailableLocalities() {
