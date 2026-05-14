@@ -65,13 +65,26 @@ export default function PropertyDetailPage() {
     ? `${window.location.origin}/og/${property.share_code || `flat-${property.id}`}`
     : window.location.href;
 
+  function buildShareText() {
+    return [
+      property.society_name,
+      [property.bhk, property.locality, property.city].filter(Boolean).join(' · '),
+      [
+        property.property_type,
+        property.furnishing_status,
+        property.sq_ft ? `${property.sq_ft} sq ft` : null,
+      ].filter(Boolean).join(' · '),
+    ].filter(Boolean).join('\n');
+  }
+
   async function handleShare() {
     const shareTitle = `${property?.society_name || 'Denner property'} · Denner`;
+    const shareText = buildShareText();
     try {
       if (navigator.share) {
-        await navigator.share({ title: shareTitle, url: ogShareUrl });
+        await navigator.share({ title: shareTitle, text: shareText, url: ogShareUrl });
       } else if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(ogShareUrl);
+        await navigator.clipboard.writeText(`${shareText}\n${ogShareUrl}`);
       }
       setShareMessage('Link copied.');
     } catch {
