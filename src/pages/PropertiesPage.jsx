@@ -30,9 +30,9 @@ function loadPersistedState() {
   } catch { return null; }
 }
 
-function persistState(filters, search) {
+function persistState(filters, search, budgetRange) {
   try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ filters, search }));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ filters, search, budgetRange }));
   } catch {}
 }
 
@@ -91,9 +91,13 @@ export default function PropertiesPage() {
     return saved?.search || '';
   });
 
-  useEffect(() => { persistState(filters, search); }, [filters, search]);
+  const [budgetRange, setBudgetRange] = useState(() => {
+    const saved = loadPersistedState();
+    return saved?.budgetRange || { min: 0, max: 0 };
+  });
 
-  const [budgetRange, setBudgetRange] = useState({ min: 0, max: 0 });
+  useEffect(() => { persistState(filters, search, budgetRange); }, [filters, search, budgetRange]);
+
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   // ── Locality fetch (all pages, bypasses pagination) ────────
@@ -150,11 +154,28 @@ export default function PropertiesPage() {
     return rentBounds;
   }, [filters.localities, localityRentBounds, rentBounds]);
 
-  // Reset slider when active bounds change (locality switch)
+  // On first bounds load: restore saved budget (clamped to bounds).
+  // On subsequent changes (locality switch): reset to the new full range.
+  const isFirstBoundsLoad = useRef(true);
+
   useEffect(() => {
-    if (activeBudgetBounds.max) {
-      setBudgetRange({ min: activeBudgetBounds.min, max: activeBudgetBounds.max });
+    if (!activeBudgetBounds.max) return;
+
+    if (isFirstBoundsLoad.current) {
+      isFirstBoundsLoad.current = false;
+      const saved = loadPersistedState();
+      const s = saved?.budgetRange;
+      if (s?.max) {
+        const clampedMin = Math.max(s.min, activeBudgetBounds.min);
+        const clampedMax = Math.min(s.max, activeBudgetBounds.max);
+        if (clampedMax >= clampedMin) {
+          setBudgetRange({ min: clampedMin, max: clampedMax });
+          return;
+        }
+      }
     }
+
+    setBudgetRange({ min: activeBudgetBounds.min, max: activeBudgetBounds.max });
   }, [activeBudgetBounds.min, activeBudgetBounds.max]);
 
   // ── Filtered + sorted results ──────────────────────────────
