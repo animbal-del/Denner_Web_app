@@ -14,67 +14,43 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;');
 }
 
-/**
- * Signed Supabase storage URLs contain /object/sign/ and expire.
- * Public storage URLs contain /object/public/ and are stable.
- * Return the URL only if it looks stable (public or external CDN).
- */
 function stableImageUrl(url) {
   if (!url || !url.startsWith('https://')) return null;
-  // Signed storage URL — unreliable for bots
-  if (/\/object\/sign\//i.test(url)) return null;
+  if (/\/object\/sign\//i.test(url)) return null; // signed = expires, reject
   return url;
 }
 
-/**
- * Try to build a public Supabase storage URL from a signed one.
- * e.g. .../object/sign/property-media/flat-1/img.jpg?token=X
- *   → .../object/public/property-media/flat-1/img.jpg
- */
 function signedToPublic(url) {
-  if (!url) return null;
-  const match = url.match(/\/object\/sign\/([^?]+)/);
+  const match = String(url || '').match(/\/object\/sign\/([^?]+)/);
   if (!match) return null;
-  const supabaseUrl = (process.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
-  return `${supabaseUrl}/storage/v1/object/public/${match[1]}`;
+  const base = (process.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
+  return `${base}/storage/v1/object/public/${match[1]}`;
 }
 
-async function resolveCoverImage(flatId, rawCoverUrl) {
-  // 1. Use cover_image_url if it's already a stable URL
-  const stable = stableImageUrl(rawCoverUrl);
-  if (stable) return stable;
+function storagePathToPublic(path) {
+  if (!path) return null;
+  const base = (process.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
+  const bucket = process.env.VITE_SUPABASE_STORAGE_BUCKET || 'property-media';
+  return `${base}/storage/v1/object/public/${bucket}/${path.replace(/^\/+/, '')}`;
+}
 
-  // 2. Convert signed URL to public format
-  const pub = signedToPublic(rawCoverUrl);
-  if (pub) return pub;
+function pickStableImage(coverImageUrl, mediaRow) {
+  // Try cover_image_url from the flat record first
+  for (const url of [coverImageUrl]) {
+    const s = stableImageUrl(url);
+    if (s) return s;
+    const p = signedToPublic(url);
+    if (p) return p;
+  }
 
-  // 3. Fall back: query inventory_flat_media for a stored public_url
-  try {
-    const { data } = await supabase
-      .from('inventory_flat_media')
-      .select('public_url, storage_path')
-      .eq('flat_id', flatId)
-      .order('is_cover', { ascending: false })
-      .order('sort_order', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (data?.public_url && data.public_url.startsWith('https://')) {
-      const s = stableImageUrl(data.public_url);
-      if (s) return s;
-      const p = signedToPublic(data.public_url);
-      if (p) return p;
-    }
-
-    // 4. Construct public URL from storage_path
-    if (data?.storage_path) {
-      const supabaseUrl = (process.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
-      const bucket = process.env.VITE_SUPABASE_STORAGE_BUCKET || 'property-media';
-      const path = data.storage_path.replace(/^\/+/, '');
-      return `${supabaseUrl}/storage/v1/object/public/${bucket}/${path}`;
-    }
-  } catch {
-    // ignore
+  // Fall back to inventory_flat_media row fetched in parallel
+  if (mediaRow) {
+    const s = stableImageUrl(mediaRow.public_url);
+    if (s) return s;
+    const p = signedToPublic(mediaRow.public_url);
+    if (p) return p;
+    const c = storagePathToPublic(mediaRow.storage_path);
+    if (c) return c;
   }
 
   return null;
@@ -92,12 +68,13 @@ export default async function handler(req, res) {
   let coverImageUrl = null;
 
   try {
+    // ── Step 1: resolve flat_id ─────────────────────────────
+    // flat-42 format → parse directly (0 DB queries)
+    // opaque code    → 1 DB query to property_share_links
     const flatIdMatch = /^flat-(\d+)$/i.exec(shareCode);
-    let flatId = null;
+    let flatId = flatIdMatch ? Number(flatIdMatch[1]) : null;
 
-    if (flatIdMatch) {
-      flatId = Number(flatIdMatch[1]);
-    } else {
+    if (!flatId) {
       const { data: link } = await supabase
         .from('property_share_links')
         .select('flat_id')
@@ -108,19 +85,29 @@ export default async function handler(req, res) {
     }
 
     if (flatId) {
-      const { data } = await supabase
-        .from('public_listings')
-        .select('id, society_name, locality, city, bhk, property_type, furnishing_status, sq_ft, cover_image_url, description')
-        .eq('id', flatId)
-        .maybeSingle();
-      property = data;
+      // ── Step 2: fetch flat data + cover media IN PARALLEL ──
+      // Previously 2-3 sequential round trips; now 1 parallel round trip
+      const [flatRes, mediaRes] = await Promise.all([
+        supabase
+          .from('public_listings')
+          .select('id, society_name, locality, city, bhk, property_type, furnishing_status, sq_ft, cover_image_url, description')
+          .eq('id', flatId)
+          .maybeSingle(),
+        supabase
+          .from('inventory_flat_media')
+          .select('public_url, storage_path')
+          .eq('flat_id', flatId)
+          .order('is_cover', { ascending: false })
+          .order('sort_order', { ascending: true })
+          .limit(1)
+          .maybeSingle(),
+      ]);
 
-      if (property) {
-        coverImageUrl = await resolveCoverImage(flatId, property.cover_image_url);
-      }
+      property = flatRes.data;
+      coverImageUrl = pickStableImage(property?.cover_image_url, mediaRes.data);
     }
   } catch {
-    // serve without OG data on error
+    // serve generic OG on any error
   }
 
   const host = req.headers.host || '';
@@ -128,12 +115,10 @@ export default async function handler(req, res) {
   const siteUrl = process.env.VITE_PUBLIC_SITE_URL || `${proto}://${host}`;
   const propertyUrl = `${siteUrl}/property/${shareCode}`;
 
-  // Title: name · BHK · locality — no rent (intentional, increases tap-through)
   const title = property
     ? `${property.society_name} · ${property.bhk} · ${property.locality}, ${property.city} | Denner`
     : 'Denner — Find your next home';
 
-  // Description: key attributes, no rent
   const description = property
     ? [
         property.bhk,
@@ -173,6 +158,7 @@ export default async function handler(req, res) {
 </html>`;
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=3600');
+  // 24h CDN cache, serve stale for 7 days while revalidating in background
+  res.setHeader('Cache-Control', 's-maxage=86400, stale-while-revalidate=604800');
   res.status(200).send(html);
 }
