@@ -472,30 +472,41 @@ export async function fetchPreviewPropertiesByIds(flatIds = []) {
   return ordered.map((r) => normalizeProperty(r, coverMediaMap, shareCodeMap));
 }
 
-export async function fetchPropertiesForLocalities(localities = []) {
+export async function fetchPropertiesForLocalitiesPage(localities = [], page = 1, pageSize = PUBLIC_PAGE_SIZE) {
   if (!hasSupabase) throw new Error('Supabase is not configured.');
   const locs = [...new Set((localities || []).map((l) => String(l || '').trim()).filter(Boolean))];
-  if (!locs.length) return [];
+  if (!locs.length) return { items: [], hasMore: false, page, pageSize };
+
+  const start = (page - 1) * pageSize;
+  const end = start + pageSize;
 
   const { data, error } = await supabase
     .from('public_listings')
     .select(PUBLIC_SELECT)
     .in('locality', locs)
-    .order('updated_at', { ascending: false });
+    .order('updated_at', { ascending: false })
+    .range(start, end);
   if (error) throw error;
 
   const rows = data || [];
-  if (!rows.length) return [];
+  const hasMore = rows.length > pageSize;
+  const pageRows = hasMore ? rows.slice(0, pageSize) : rows;
+  if (!pageRows.length) return { items: [], hasMore: false, page, pageSize };
 
-  const flatIds = rows.map((r) => r.id);
+  const flatIds = pageRows.map((r) => r.id);
   const coverImageUrlMap = new Map(
-    rows.filter((r) => looksLikeHttpUrl(r.cover_image_url)).map((r) => [r.id, r.cover_image_url])
+    pageRows.filter((r) => looksLikeHttpUrl(r.cover_image_url)).map((r) => [r.id, r.cover_image_url])
   );
   const [coverMediaMap, shareCodeMap] = await Promise.all([
     fetchCoverMediaMap(flatIds, coverImageUrlMap),
     fetchShareCodeMap(flatIds),
   ]);
-  return rows.map((r) => normalizeProperty(r, coverMediaMap, shareCodeMap));
+  return {
+    items: pageRows.map((r) => normalizeProperty(r, coverMediaMap, shareCodeMap)),
+    hasMore,
+    page,
+    pageSize,
+  };
 }
 
 export async function getPreviewPropertyByShareCode(propertyRef) {
@@ -576,25 +587,24 @@ export async function getRentBoundsForLocalities(localities = []) {
     ...new Set((localities || []).map((l) => String(l || '').trim()).filter(Boolean)),
   ].slice(0, 3);
 
-  let query = supabase
-    .from('public_listings')
-    .select('monthly_rent')
-    .not('monthly_rent', 'is', null)
-    .order('monthly_rent', { ascending: true })
-    .limit(500);
+  function base() {
+    let q = supabase.from('public_listings').select('monthly_rent').not('monthly_rent', 'is', null);
+    if (selected.length) q = q.in('locality', selected);
+    return q;
+  }
 
-  if (selected.length) query = query.in('locality', selected);
+  const [{ data: minData, error: minErr }, { data: maxData, error: maxErr }] = await Promise.all([
+    base().order('monthly_rent', { ascending: true }).limit(1),
+    base().order('monthly_rent', { ascending: false }).limit(1),
+  ]);
 
-  const { data, error } = await query;
-  if (error) throw error;
+  if (minErr) throw minErr;
+  if (maxErr) throw maxErr;
 
-  const rents = (data || [])
-    .map((r) => Number(r.monthly_rent))
-    .filter((v) => Number.isFinite(v) && v > 0)
-    .sort((a, b) => a - b);
-
-  if (!rents.length) return { min: 0, max: 0 };
-  return { min: rents[0], max: rents[rents.length - 1] };
+  const min = Number(minData?.[0]?.monthly_rent || 0);
+  const max = Number(maxData?.[0]?.monthly_rent || 0);
+  if (!min || !max) return { min: 0, max: 0 };
+  return { min, max };
 }
 
 export { PUBLIC_PAGE_SIZE };

@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import PropertyCard from '../components/PropertyCard.jsx';
 import { usePublicProperties } from '../services/publicPropertiesContext.jsx';
 import {
-  fetchAllProperties,
-  fetchPropertiesForLocalities,
+  fetchPropertiesForLocalitiesPage,
   getRentBoundsForLocalities,
   PUBLIC_PAGE_SIZE,
 } from '../services/publicPropertiesService.js';
@@ -106,31 +105,33 @@ export default function PropertiesPage() {
   // Reset display count whenever filters or search change
   useEffect(() => { setDisplayCount(PUBLIC_PAGE_SIZE); }, [filters, search]);
 
-  // ── Locality fetch (all pages, bypasses pagination) ────────
-  const { data: localityItems = [], isLoading: localityLoading } = useQuery({
+  // ── Locality filter — paginated via useInfiniteQuery ───────
+  const {
+    data: localityData,
+    fetchNextPage: fetchMoreLocalities,
+    hasNextPage: hasMoreLocalities,
+    isLoading: localityLoading,
+    isFetchingNextPage: localityFetchingMore,
+  } = useInfiniteQuery({
     queryKey: ['properties-localities', filters.localities],
-    queryFn: () => fetchPropertiesForLocalities(filters.localities),
+    queryFn: ({ pageParam }) => fetchPropertiesForLocalitiesPage(filters.localities, pageParam, PUBLIC_PAGE_SIZE),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.page + 1 : undefined,
     enabled: filters.localities.length > 0,
     staleTime: 5 * 60 * 1000,
   });
 
-  // ── Full dataset fetch when non-locality filters are active ─
+  const localityItems = useMemo(
+    () => localityData?.pages.flatMap((p) => p.items) ?? [],
+    [localityData]
+  );
+
+  // ── Non-locality filters: reuse already-loaded paginated data ─
   const hasNonLocalityFilter = Boolean(
     search || filters.city || filters.bhk || filters.propertyType || filters.furnishingStatus
   );
 
-  const { data: allItems = [], isLoading: allLoading } = useQuery({
-    queryKey: ['all-properties'],
-    queryFn: fetchAllProperties,
-    enabled: hasNonLocalityFilter && filters.localities.length === 0,
-    staleTime: 5 * 60 * 1000,
-  });
-
-  const baseItems = filters.localities.length
-    ? localityItems
-    : hasNonLocalityFilter
-      ? allItems
-      : paginatedItems;
+  const baseItems = filters.localities.length > 0 ? localityItems : paginatedItems;
 
   // ── Budget bounds ──────────────────────────────────────────
   const { data: localityRentBounds = { min: 0, max: 0 } } = useQuery({
@@ -203,20 +204,31 @@ export default function PropertiesPage() {
     return sorted;
   }, [baseItems, filters, search, budgetRange, activeBudgetBounds.max]);
 
-  const isFiltered = filters.localities.length > 0 || hasNonLocalityFilter;
-  const displayedItems = useMemo(() => filtered.slice(0, displayCount), [filtered, displayCount]);
+  // Locality filter: DB-paginated — show all loaded, load more fetches next DB page
+  // Non-locality filter: client-side slice of paginatedItems (already loaded), then fetch more DB pages
+  // No filter: show all paginatedItems pages, load more fetches next DB page
+  const displayedItems = useMemo(() => {
+    if (filters.localities.length > 0) return filtered;
+    if (hasNonLocalityFilter) return filtered.slice(0, displayCount);
+    return filtered;
+  }, [filtered, displayCount, filters.localities.length, hasNonLocalityFilter]);
+
+  const hasMoreDisplayItems = hasNonLocalityFilter && displayCount < filtered.length;
+  const hasMoreDbPages = filters.localities.length > 0 ? hasMoreLocalities : hasMore;
+  const canLoadMore = !loading && !loadingMore && !localityFetchingMore && !error &&
+    (hasMoreDbPages || hasMoreDisplayItems);
 
   function handleLoadMore() {
-    if (isFiltered) {
+    if (filters.localities.length > 0) {
+      fetchMoreLocalities();
+    } else if (hasMoreDisplayItems) {
       setDisplayCount((c) => c + PUBLIC_PAGE_SIZE);
     } else {
       loadMore();
     }
   }
 
-  const canLoadMore = !loading && !error &&
-    (isFiltered ? displayCount < filtered.length : hasMore);
-  const isLoadingMore = isFiltered ? false : loadingMore;
+  const isLoadingMore = filters.localities.length > 0 ? localityFetchingMore : loadingMore;
 
   const budgetChanged =
     activeBudgetBounds.max &&
@@ -295,7 +307,7 @@ export default function PropertiesPage() {
   }
 
   const showBudgetSlider = Boolean(activeBudgetBounds.max);
-  const isLoading = loading || localityLoading || allLoading;
+  const isLoading = loading || (filters.localities.length > 0 && localityLoading);
 
   return (
     <div className="page-shell">
@@ -325,7 +337,7 @@ export default function PropertiesPage() {
 
             <div className="toolbar-actions">
               <div className="results-chip">
-                {displayedItems.length < filtered.length
+                {hasNonLocalityFilter && displayedItems.length < filtered.length
                   ? `${displayedItems.length} of ${filtered.length}`
                   : `${filtered.length} shown`}
               </div>
