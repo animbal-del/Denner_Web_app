@@ -1,71 +1,59 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useMemo } from 'react';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { getPreviewPropertiesPage, getFilterOptions, PUBLIC_PAGE_SIZE } from './publicPropertiesService.js';
 
 const PublicPropertiesContext = createContext(null);
 
+const DEFAULT_FILTER_OPTIONS = {
+  cities: [],
+  localities: [],
+  propertyTypes: [],
+  furnishingStatuses: [],
+  rentBounds: { min: 0, max: 0 },
+};
+
 export function PublicPropertiesProvider({ children }) {
-  const [properties, setProperties] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState('');
-  const [loadedAt, setLoadedAt] = useState(null);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  const [filterOptions, setFilterOptions] = useState({ cities: [], localities: [], propertyTypes: [], furnishingStatuses: [], rentBounds: { min: 0, max: 0 } });
-  const bootstrapped = useRef(false);
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isPending: loading,
+    isFetchingNextPage: loadingMore,
+    isError,
+    error,
+    refetch,
+    dataUpdatedAt,
+  } = useInfiniteQuery({
+    queryKey: ['properties'],
+    queryFn: ({ pageParam }) => getPreviewPropertiesPage(pageParam, PUBLIC_PAGE_SIZE),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.page + 1 : undefined,
+    staleTime: 5 * 60 * 1000,
+  });
 
-  const loadPage = useCallback(async (targetPage, mode = 'replace') => {
-    const setter = targetPage === 1 || mode === 'replace' ? setLoading : setLoadingMore;
-    setter(true);
-    if (mode === 'replace') setError('');
-    try {
-      const result = await getPreviewPropertiesPage(targetPage, PUBLIC_PAGE_SIZE);
-      setHasMore(Boolean(result?.hasMore));
-      setPage(result?.page || targetPage);
-      setLoadedAt(Date.now());
-      setProperties((prev) => {
-        if (mode === 'append') {
-          const byId = new Map(prev.map((item) => [item.id, item]));
-          for (const item of result.items || []) byId.set(item.id, item);
-          return Array.from(byId.values());
-        }
-        return result.items || [];
-      });
-    } catch (err) {
-      setError(err.message || 'Failed to load preview properties');
-    } finally {
-      setter(false);
-    }
-  }, []);
+  const { data: filterOptions = DEFAULT_FILTER_OPTIONS } = useQuery({
+    queryKey: ['filter-options'],
+    queryFn: getFilterOptions,
+    staleTime: 10 * 60 * 1000,
+  });
 
-  const refreshProperties = useCallback(async () => {
-    await loadPage(1, 'replace');
-  }, [loadPage]);
-
-  const loadMore = useCallback(async () => {
-    if (!hasMore || loadingMore || loading) return;
-    await loadPage(page + 1, 'append');
-  }, [hasMore, loadingMore, loading, page, loadPage]);
-
-  useEffect(() => {
-    if (bootstrapped.current) return;
-    bootstrapped.current = true;
-    loadPage(1, 'replace');
-    getFilterOptions().then(setFilterOptions).catch(() => {});
-  }, [loadPage]);
+  const properties = useMemo(
+    () => data?.pages.flatMap((page) => page.items) ?? [],
+    [data]
+  );
 
   const value = useMemo(() => ({
     properties,
     loading,
     loadingMore,
-    error,
-    loadedAt,
-    refreshProperties,
-    loadMore,
-    hasMore,
-    page,
+    error: isError ? (error?.message || 'Failed to load properties') : '',
+    loadedAt: dataUpdatedAt || null,
+    refreshProperties: refetch,
+    loadMore: fetchNextPage,
+    hasMore: Boolean(hasNextPage),
+    page: data?.pages.length ?? 1,
     filterOptions,
-  }), [properties, loading, loadingMore, error, loadedAt, refreshProperties, loadMore, hasMore, page, filterOptions]);
+  }), [properties, loading, loadingMore, isError, error, dataUpdatedAt, refetch, fetchNextPage, hasNextPage, data, filterOptions]);
 
   return <PublicPropertiesContext.Provider value={value}>{children}</PublicPropertiesContext.Provider>;
 }

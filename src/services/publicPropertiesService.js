@@ -4,19 +4,6 @@ import { hasStorageClient, storageClient } from '../lib/storageClient.js';
 const MEDIA_BUCKET = import.meta.env.VITE_SUPABASE_STORAGE_BUCKET || 'property-media';
 const PUBLIC_PAGE_SIZE = 12;
 
-/* ── Module-level TTL cache ────────────────────────────────── */
-const _cache = new Map(); // key → { value, expiresAt }
-
-function cacheGet(key) {
-  const entry = _cache.get(key);
-  if (!entry || Date.now() > entry.expiresAt) { _cache.delete(key); return null; }
-  return entry.value;
-}
-
-function cacheSet(key, value, ttlMs = 5 * 60 * 1000) {
-  _cache.set(key, { value, expiresAt: Date.now() + ttlMs });
-}
-
 /* ── Helpers ───────────────────────────────────────────────── */
 
 function sortMedia(items = []) {
@@ -159,24 +146,28 @@ async function createSignedMediaUrlMap(rows = []) {
  */
 function buildMediaCandidates(mediaRow, signedUrlMap = new Map(), extraFallbacks = []) {
   const normalized = normalizeStoragePath(mediaRow?.storage_path || mediaRow?.public_url || '');
+  const isVideo = String(mediaRow?.media_type || '').toLowerCase() === 'video';
   const candidates = [];
 
-  // 1. Signed URL
-  if (normalized && signedUrlMap.has(normalized)) {
-    candidates.push(signedUrlMap.get(normalized));
-  }
-
-  // 2. Stored public_url (direct accessible URL)
-  if (looksLikeHttpUrl(mediaRow?.public_url)) {
-    candidates.push(mediaRow.public_url);
-  }
-
-  // 3. Supabase public storage URL
   if (normalized) {
-    candidates.push(getPublicMediaUrl(normalized));
+    if (isVideo) {
+      // Videos are too large to proxy — use signed URL directly
+      if (signedUrlMap.has(normalized)) candidates.push(signedUrlMap.get(normalized));
+    } else {
+      // Images: proxy through /api/media so Vercel CDN caches the response
+      // Falls back to signed URL in dev (proxy returns 404 from Vite server)
+      candidates.push(`/api/media?path=${encodeURIComponent(normalized)}`);
+      if (signedUrlMap.has(normalized)) candidates.push(signedUrlMap.get(normalized));
+    }
   }
 
-  // 4. Extra fallbacks
+  // Stored public_url (direct CDN or public storage URL from DB)
+  if (looksLikeHttpUrl(mediaRow?.public_url)) candidates.push(mediaRow.public_url);
+
+  // Supabase public storage URL (works if bucket is public)
+  if (normalized) candidates.push(getPublicMediaUrl(normalized));
+
+  // Extra fallbacks
   for (const url of extraFallbacks) {
     if (looksLikeHttpUrl(url)) candidates.push(url);
   }
@@ -228,8 +219,9 @@ async function fetchCoverMediaMap(flatIds, coverImageUrlMap = new Map()) {
     if (chosen) chosenRows.push(chosen);
   }
 
-  // Generate signed URLs for all chosen rows in one (batched) call
-  const signedUrlMap = await createSignedMediaUrlMap(chosenRows);
+  // Only generate signed URLs for video rows — images use the /api/media proxy
+  const videoRows = chosenRows.filter((r) => String(r.media_type || '').toLowerCase() === 'video');
+  const signedUrlMap = await createSignedMediaUrlMap(videoRows);
 
   const out = new Map();
 
@@ -287,7 +279,8 @@ async function fetchAllMediaForFlat(flatId) {
   if (error) throw error;
 
   const rows = data || [];
-  const signedUrlMap = await createSignedMediaUrlMap(rows);
+  const videoRows = rows.filter((r) => String(r.media_type || '').toLowerCase() === 'video');
+  const signedUrlMap = await createSignedMediaUrlMap(videoRows);
 
   return sortMedia(
     rows
@@ -516,8 +509,6 @@ export function getCoverImage(property) {
 
 export async function fetchAllProperties() {
   if (!hasSupabase) throw new Error('Supabase is not configured.');
-  const cached = cacheGet('all_properties');
-  if (cached) return cached;
 
   const { data, error } = await supabase
     .from('public_listings')
@@ -527,7 +518,7 @@ export async function fetchAllProperties() {
   if (error) throw error;
 
   const rows = data || [];
-  if (!rows.length) { cacheSet('all_properties', []); return []; }
+  if (!rows.length) return [];
 
   const flatIds = rows.map((r) => r.id);
   const coverImageUrlMap = new Map(
@@ -537,15 +528,11 @@ export async function fetchAllProperties() {
     fetchCoverMediaMap(flatIds, coverImageUrlMap),
     fetchShareCodeMap(flatIds),
   ]);
-  const result = rows.map((r) => normalizeProperty(r, coverMediaMap, shareCodeMap));
-  cacheSet('all_properties', result);
-  return result;
+  return rows.map((r) => normalizeProperty(r, coverMediaMap, shareCodeMap));
 }
 
 export async function getFilterOptions() {
   if (!hasSupabase) throw new Error('Supabase is not configured.');
-  const cached = cacheGet('filter_options');
-  if (cached) return cached;
 
   const { data, error } = await supabase
     .from('public_listings')
@@ -562,15 +549,13 @@ export async function getFilterOptions() {
     .filter((v) => Number.isFinite(v) && v > 0)
     .sort((a, b) => a - b);
 
-  const result = {
+  return {
     cities: unique('city'),
     localities: unique('locality'),
     propertyTypes: unique('property_type'),
     furnishingStatuses: unique('furnishing_status'),
     rentBounds: rents.length ? { min: rents[0], max: rents[rents.length - 1] } : { min: 0, max: 0 },
   };
-  cacheSet('filter_options', result);
-  return result;
 }
 
 export async function getAvailableLocalities() {

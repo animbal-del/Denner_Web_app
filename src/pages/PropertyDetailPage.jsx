@@ -1,5 +1,6 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../services/authService.jsx';
 import { getPreviewPropertyByShareCode } from '../services/publicPropertiesService.js';
 import { usePublicProperties } from '../services/publicPropertiesContext.jsx';
@@ -71,27 +72,26 @@ export default function PropertyDetailPage() {
   const location = useLocation();
   const { isAuthenticated, profile } = useAuth();
   const { properties } = usePublicProperties();
-  const [property, setProperty] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const [shareMessage, setShareMessage] = useState('');
   const [showVisitModal, setShowVisitModal] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    const preview = properties.find((item) => item.share_code === shareCode || `flat-${item.id}` === shareCode);
-    setLoading(true);
-    setError('');
-    setProperty(preview || null);
-    setActiveIndex(0);
+  const previewProperty = useMemo(
+    () => properties.find((item) => item.share_code === shareCode || `flat-${item.id}` === shareCode) ?? undefined,
+    [properties, shareCode]
+  );
 
-    getPreviewPropertyByShareCode(shareCode)
-      .then((data) => { if (!active) return; setProperty(data); setLoading(false); })
-      .catch((err) => { if (!active) return; setError(err.message || 'Failed to load property preview.'); setLoading(false); });
+  const { data: property = null, isPending, isError, error: fetchError } = useQuery({
+    queryKey: ['property', shareCode],
+    queryFn: () => getPreviewPropertyByShareCode(shareCode),
+    placeholderData: previewProperty,
+    staleTime: 5 * 60 * 1000,
+  });
 
-    return () => { active = false; };
-  }, [shareCode, properties]);
+  const loading = isPending && !property;
+  const error = isError ? (fetchError?.message || 'Failed to load property preview.') : '';
+
+  useEffect(() => { setActiveIndex(0); }, [shareCode]);
 
   const gallery = useMemo(() => (property?.media || []).filter((item) => item?.url), [property]);
   const currentMedia = gallery[activeIndex] || null;

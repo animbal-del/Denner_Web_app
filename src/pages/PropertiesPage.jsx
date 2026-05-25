@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import PropertyCard from '../components/PropertyCard.jsx';
 import { usePublicProperties } from '../services/publicPropertiesContext.jsx';
 import {
@@ -101,37 +102,24 @@ export default function PropertiesPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   // ── Locality fetch (all pages, bypasses pagination) ────────
-  const [localityItems, setLocalityItems] = useState([]);
-  const [localityLoading, setLocalityLoading] = useState(false);
-
-  useEffect(() => {
-    if (!filters.localities.length) { setLocalityItems([]); return; }
-    let cancelled = false;
-    setLocalityLoading(true);
-    fetchPropertiesForLocalities(filters.localities)
-      .then((r) => { if (!cancelled) setLocalityItems(r); })
-      .catch(() => { if (!cancelled) setLocalityItems([]); })
-      .finally(() => { if (!cancelled) setLocalityLoading(false); });
-    return () => { cancelled = true; };
-  }, [filters.localities]);
+  const { data: localityItems = [], isLoading: localityLoading } = useQuery({
+    queryKey: ['properties-localities', filters.localities],
+    queryFn: () => fetchPropertiesForLocalities(filters.localities),
+    enabled: filters.localities.length > 0,
+    staleTime: 5 * 60 * 1000,
+  });
 
   // ── Full dataset fetch when non-locality filters are active ─
   const hasNonLocalityFilter = Boolean(
     search || filters.city || filters.bhk || filters.propertyType || filters.furnishingStatus
   );
-  const [allItems, setAllItems] = useState([]);
-  const [allLoading, setAllLoading] = useState(false);
-  const allLoadedRef = useRef(false);
 
-  useEffect(() => {
-    if (!hasNonLocalityFilter || filters.localities.length || allLoadedRef.current) return;
-    allLoadedRef.current = true;
-    setAllLoading(true);
-    fetchAllProperties()
-      .then((r) => setAllItems(r))
-      .catch(() => {})
-      .finally(() => setAllLoading(false));
-  }, [hasNonLocalityFilter, filters.localities.length]);
+  const { data: allItems = [], isLoading: allLoading } = useQuery({
+    queryKey: ['all-properties'],
+    queryFn: fetchAllProperties,
+    enabled: hasNonLocalityFilter && filters.localities.length === 0,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const baseItems = filters.localities.length
     ? localityItems
@@ -140,14 +128,13 @@ export default function PropertiesPage() {
       : paginatedItems;
 
   // ── Budget bounds ──────────────────────────────────────────
-  const [localityRentBounds, setLocalityRentBounds] = useState({ min: 0, max: 0 });
-
-  useEffect(() => {
-    if (!filters.localities.length) { setLocalityRentBounds({ min: 0, max: 0 }); return; }
-    getRentBoundsForLocalities(filters.localities)
-      .then(setLocalityRentBounds)
-      .catch(() => setLocalityRentBounds({ min: 0, max: 0 }));
-  }, [filters.localities]);
+  const { data: localityRentBounds = { min: 0, max: 0 } } = useQuery({
+    queryKey: ['rent-bounds', filters.localities],
+    queryFn: () => getRentBoundsForLocalities(filters.localities),
+    enabled: filters.localities.length > 0,
+    staleTime: 5 * 60 * 1000,
+    placeholderData: { min: 0, max: 0 },
+  });
 
   const activeBudgetBounds = useMemo(() => {
     if (filters.localities.length && localityRentBounds.max) return localityRentBounds;
