@@ -6,6 +6,7 @@ import {
   fetchAllProperties,
   fetchPropertiesForLocalities,
   getRentBoundsForLocalities,
+  PUBLIC_PAGE_SIZE,
 } from '../services/publicPropertiesService.js';
 import NativeSelect from '../components/NativeSelect.jsx';
 import LocalityMultiSelect from '../components/LocalityMultiSelect.jsx';
@@ -100,6 +101,10 @@ export default function PropertiesPage() {
   useEffect(() => { persistState(filters, search, budgetRange); }, [filters, search, budgetRange]);
 
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [displayCount, setDisplayCount] = useState(PUBLIC_PAGE_SIZE);
+
+  // Reset display count whenever filters or search change
+  useEffect(() => { setDisplayCount(PUBLIC_PAGE_SIZE); }, [filters, search]);
 
   // ── Locality fetch (all pages, bypasses pagination) ────────
   const { data: localityItems = [], isLoading: localityLoading } = useQuery({
@@ -198,6 +203,21 @@ export default function PropertiesPage() {
     return sorted;
   }, [baseItems, filters, search, budgetRange, activeBudgetBounds.max]);
 
+  const isFiltered = filters.localities.length > 0 || hasNonLocalityFilter;
+  const displayedItems = useMemo(() => filtered.slice(0, displayCount), [filtered, displayCount]);
+
+  function handleLoadMore() {
+    if (isFiltered) {
+      setDisplayCount((c) => c + PUBLIC_PAGE_SIZE);
+    } else {
+      loadMore();
+    }
+  }
+
+  const canLoadMore = !loading && !error &&
+    (isFiltered ? displayCount < filtered.length : hasMore);
+  const isLoadingMore = isFiltered ? false : loadingMore;
+
   const budgetChanged =
     activeBudgetBounds.max &&
     (budgetRange.min !== activeBudgetBounds.min || budgetRange.max !== activeBudgetBounds.max);
@@ -276,7 +296,6 @@ export default function PropertiesPage() {
 
   const showBudgetSlider = Boolean(activeBudgetBounds.max);
   const isLoading = loading || localityLoading || allLoading;
-  const showLoadMore = !filters.localities.length && !hasNonLocalityFilter && !loading && !error && hasMore;
 
   return (
     <div className="page-shell">
@@ -305,7 +324,11 @@ export default function PropertiesPage() {
             </div>
 
             <div className="toolbar-actions">
-              <div className="results-chip">{filtered.length} shown</div>
+              <div className="results-chip">
+                {displayedItems.length < filtered.length
+                  ? `${displayedItems.length} of ${filtered.length}`
+                  : `${filtered.length} shown`}
+              </div>
               <button
                 className={`filter-toggle-btn${filtersOpen ? ' active' : ''}${activeFilterCount ? ' has-active' : ''}`}
                 onClick={() => setFiltersOpen((o) => !o)}
@@ -427,15 +450,15 @@ export default function PropertiesPage() {
         ) : null}
 
         <div className="properties-grid">
-          {filtered.map((property) => (
+          {displayedItems.map((property) => (
             <PropertyCard key={property.id} property={property} />
           ))}
         </div>
 
-        {showLoadMore ? (
+        {canLoadMore ? (
           <div className="listing-more-row">
-            <button className="button ghost" onClick={loadMore} disabled={loadingMore}>
-              {loadingMore ? 'Loading more…' : 'Load more properties'}
+            <button className="button ghost" onClick={handleLoadMore} disabled={isLoadingMore}>
+              {isLoadingMore ? 'Loading more…' : 'Load more properties'}
             </button>
           </div>
         ) : null}
