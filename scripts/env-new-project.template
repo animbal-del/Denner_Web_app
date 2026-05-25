@@ -1,0 +1,15 @@
+# Copy these into your .env (local) and Vercel environment variables
+# after creating the new Supabase project.
+
+VITE_PUBLIC_APP_BASE_URL=https://denner.in
+VITE_USE_MOCK=false
+
+# ── NEW Supabase project ──────────────────────────────────────
+VITE_SUPABASE_URL=https://<NEW_PROJECT_REF>.supabase.co
+VITE_SUPABASE_ANON_KEY=<NEW_ANON_KEY>
+
+# Server-only — goes in Vercel env vars, NOT in .env committed to git
+SUPABASE_SERVICE_ROLE_KEY=<NEW_SERVICE_ROLE_KEY>
+
+# Storage bucket name — keep the same unless you renamed it
+VITE_SUPABASE_STORAGE_BUCKET=property-media
