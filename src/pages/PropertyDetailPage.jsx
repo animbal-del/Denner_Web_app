@@ -1,5 +1,5 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../services/authService.jsx';
 import { getPreviewPropertyByShareCode } from '../services/publicPropertiesService.js';
 import { usePublicProperties } from '../services/publicPropertiesContext.jsx';
@@ -23,6 +23,46 @@ function MediaStage({ media, title }) {
       placeholderClassName="detail-stage placeholder"
       videoControls
     />
+  );
+}
+
+function LazyThumb({ media, index, activeIndex, onClick }) {
+  const ref = useRef(null);
+  const [inView, setInView] = useState(false);
+  const shouldLoad = inView || Math.abs(index - activeIndex) <= 1;
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || shouldLoad) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setInView(true); },
+      { rootMargin: '100px' }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [shouldLoad]);
+
+  return (
+    <button
+      ref={ref}
+      type="button"
+      className={`thumb-button${index === activeIndex ? ' active' : ''}`}
+      onClick={onClick}
+      aria-label={`Media ${index + 1}`}
+    >
+      {shouldLoad ? (
+        <MediaAsset
+          media={media}
+          alt="Thumbnail"
+          wrapperClassName="thumb-media"
+          imageClassName="thumb-media-image"
+          videoClassName="thumb-media-video"
+          placeholderClassName="thumb-media thumb-placeholder"
+        />
+      ) : (
+        <div className="thumb-media thumb-placeholder" />
+      )}
+    </button>
   );
 }
 
@@ -55,6 +95,15 @@ export default function PropertyDetailPage() {
 
   const gallery = useMemo(() => (property?.media || []).filter((item) => item?.url), [property]);
   const currentMedia = gallery[activeIndex] || null;
+
+  useEffect(() => {
+    [-1, 1].forEach((offset) => {
+      const item = gallery[activeIndex + offset];
+      if (!item?.url || String(item.media_type).toLowerCase() === 'video') return;
+      const img = new Image();
+      img.src = item.url;
+    });
+  }, [activeIndex, gallery]);
 
   const cycle = (step) => {
     if (!gallery.length) return;
@@ -151,22 +200,13 @@ export default function PropertyDetailPage() {
             {gallery.length > 1 && (
               <div className="thumb-strip">
                 {gallery.map((media, index) => (
-                  <button
+                  <LazyThumb
                     key={media.id}
-                    type="button"
-                    className={`thumb-button${index === activeIndex ? ' active' : ''}`}
+                    media={media}
+                    index={index}
+                    activeIndex={activeIndex}
                     onClick={() => setActiveIndex(index)}
-                    aria-label={`Media ${index + 1}`}
-                  >
-                    <MediaAsset
-                      media={media}
-                      alt="Thumbnail"
-                      wrapperClassName="thumb-media"
-                      imageClassName="thumb-media-image"
-                      videoClassName="thumb-media-video"
-                      placeholderClassName="thumb-media thumb-placeholder"
-                    />
-                  </button>
+                  />
                 ))}
               </div>
             )}
