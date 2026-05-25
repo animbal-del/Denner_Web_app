@@ -550,7 +550,7 @@ export async function getFilterOptions() {
   const { data, error } = await supabase
     .from('public_listings')
     .select('city, locality, property_type, furnishing_status, monthly_rent')
-    .limit(2000);
+    .limit(500);
   if (error) throw error;
 
   const rows = data || [];
@@ -580,7 +580,7 @@ export async function getAvailableLocalities() {
     .select('locality')
     .not('locality', 'is', null)
     .order('locality', { ascending: true })
-    .limit(1000);
+    .limit(500);
   if (error) throw error;
   return [...new Set((data || []).map((r) => String(r.locality || '').trim()).filter(Boolean))];
 }
@@ -596,7 +596,7 @@ export async function getRentBoundsForLocalities(localities = []) {
     .select('monthly_rent')
     .not('monthly_rent', 'is', null)
     .order('monthly_rent', { ascending: true })
-    .limit(1000);
+    .limit(500);
 
   if (selected.length) query = query.in('locality', selected);
 

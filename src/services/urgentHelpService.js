@@ -48,7 +48,7 @@ export async function createUrgentHelpRequest(profileId, payload) {
   const { data, error } = await supabase
     .from(TABLE)
     .insert(insertPayload)
-    .select('*')
+    .select('id, user_profile_id, name_snapshot, phone_snapshot, city, state, preferred_localities, rent_min, rent_max, required_by_date, consent_to_contact, status, notes, created_at')
     .single();
 
   if (error) throw error;

@@ -22,7 +22,7 @@ export async function updateUserProfile(profileId, payload) {
     .from('profiles')
     .update(nextPayload)
     .eq('id', profileId)
-    .select('*')
+    .select('id, auth_user_id, role, full_name, phone, email, city, state, is_active, updated_at')
     .single();
 
   if (error) throw error;

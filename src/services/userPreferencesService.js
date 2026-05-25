@@ -30,7 +30,7 @@ export async function getUserPreferences(profileId) {
 
   const { data, error } = await supabase
     .from(TABLE)
-    .select('*')
+    .select('id, profile_id, preferred_city, preferred_state, preferred_localities, rent_min, rent_max, move_in_timeline, is_first_visit_form_completed, updated_at')
     .eq('profile_id', profileId)
     .maybeSingle();
 
@@ -59,7 +59,7 @@ export async function upsertUserPreferences(profileId, payload) {
   const { data, error } = await supabase
     .from(TABLE)
     .upsert(nextPayload, { onConflict: 'profile_id' })
-    .select('*')
+    .select('id, profile_id, preferred_city, preferred_state, preferred_localities, rent_min, rent_max, move_in_timeline, is_first_visit_form_completed, updated_at')
     .single();
 
   if (error) throw error;

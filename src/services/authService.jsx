@@ -1,6 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase, hasSupabase } from '../lib/supabaseClient.js';
 
+const PROFILE_COLS = 'id, auth_user_id, role, full_name, phone, email, city, state, is_active';
+const PARTNER_COLS = 'id, profile_id, partner_type, company_name, locality, section, verification_status';
+
 const AuthContext = createContext(null);
 
 async function ensureSupabaseProfile(user, role, formData) {
@@ -8,7 +11,7 @@ async function ensureSupabaseProfile(user, role, formData) {
 
   const { data: existingProfile, error: existingError } = await supabase
     .from('profiles')
-    .select('*')
+    .select(PROFILE_COLS)
     .eq('auth_user_id', user.id)
     .maybeSingle();
 
@@ -29,7 +32,7 @@ async function ensureSupabaseProfile(user, role, formData) {
         state: formData.state || null,
         is_active: true,
       })
-      .select()
+      .select(PROFILE_COLS)
       .single();
 
     if (error) {
@@ -52,7 +55,7 @@ async function ensureSupabaseProfile(user, role, formData) {
         .from('profiles')
         .update(patch)
         .eq('id', profile.id)
-        .select()
+        .select(PROFILE_COLS)
         .single();
       if (updateError) throw updateError;
       profile = updated;
@@ -62,7 +65,7 @@ async function ensureSupabaseProfile(user, role, formData) {
   if (role === 'partner') {
     const { data: existingPartner, error: partnerLookupError } = await supabase
       .from('partner_profiles')
-      .select('*')
+      .select(PARTNER_COLS)
       .eq('profile_id', profile.id)
       .maybeSingle();
 
@@ -93,7 +96,7 @@ async function recoverSupabaseProfile(user, expectedRole = null) {
 
   let { data: profile, error } = await supabase
     .from('profiles')
-    .select('*')
+    .select(PROFILE_COLS)
     .eq('auth_user_id', user.id)
     .maybeSingle();
 
@@ -112,7 +115,7 @@ async function recoverSupabaseProfile(user, expectedRole = null) {
         state: meta.state || null,
         is_active: true,
       })
-      .select()
+      .select(PROFILE_COLS)
       .single();
 
     if (createError) throw createError;
@@ -124,7 +127,7 @@ async function recoverSupabaseProfile(user, expectedRole = null) {
       .from('profiles')
       .update({ role: 'partner', is_active: true })
       .eq('id', profile.id)
-      .select()
+      .select(PROFILE_COLS)
       .single();
     if (updateError) throw updateError;
     profile = updated;
@@ -133,7 +136,7 @@ async function recoverSupabaseProfile(user, expectedRole = null) {
   if (targetRole === 'partner') {
     const { data: partnerProfile, error: partnerError } = await supabase
       .from('partner_profiles')
-      .select('*')
+      .select(PARTNER_COLS)
       .eq('profile_id', profile.id)
       .maybeSingle();
 

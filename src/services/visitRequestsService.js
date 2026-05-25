@@ -123,7 +123,7 @@ export async function createVisitRequest({ profile, property, preferences }) {
   const { data, error } = await supabase
     .from('visit_requests')
     .insert(payload)
-    .select('*')
+    .select('id, flat_id, flat_code_snapshot, user_profile_id, status, whatsapp_message_text, whatsapp_number_used, created_at')
     .single();
 
   if (error) throw error;
