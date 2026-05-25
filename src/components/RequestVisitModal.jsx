@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../services/authService.jsx';
 import { createVisitRequest, getExistingVisitRequest } from '../services/visitRequestsService.js';
 import { buildEmptyPreferences, getUserPreferences, upsertUserPreferences } from '../services/userPreferencesService.js';
@@ -31,7 +32,6 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
   const [loadingPrefs, setLoadingPrefs] = useState(true);
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [alreadyRequested, setAlreadyRequested] = useState(false);
-  const [localityOptions, setLocalityOptions] = useState([]);
   const [bounds, setBounds] = useState({ min: 0, max: 0 });
   const [budgetRange, setBudgetRange] = useState({ min: 0, max: 0 });
   const [form, setForm] = useState({ ...buildEmptyPreferences(), localities: ['', '', ''] });
@@ -39,6 +39,12 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
   const [error, setError] = useState('');
 
   const selectedLocalities = useMemo(() => normalizeLocalities(form.localities), [form.localities]);
+
+  const { data: localityOptions = [] } = useQuery({
+    queryKey: ['localities'],
+    queryFn: getAvailableLocalities,
+    staleTime: 10 * 60 * 1000,
+  });
 
   useEffect(() => {
     if (!open || !isAuthenticated || profile?.role !== 'user') return;
@@ -49,9 +55,8 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
       setError('');
       setAlreadyRequested(false);
 
-      const [prefsResult, optionsResult, overallBoundsResult, existingResult] = await Promise.allSettled([
+      const [prefsResult, overallBoundsResult, existingResult] = await Promise.allSettled([
         getUserPreferences(profile.id),
-        getAvailableLocalities(),
         getRentBoundsForLocalities([]),
         getExistingVisitRequest(profile.id, property?.id),
       ]);
@@ -59,14 +64,10 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
       if (!active) return;
 
       const prefData = prefsResult.status === 'fulfilled' ? prefsResult.value : null;
-      const options = optionsResult.status === 'fulfilled' ? (optionsResult.value || []) : [];
       const overallBounds = overallBoundsResult.status === 'fulfilled' ? overallBoundsResult.value : { min: 0, max: 0 };
       const existingVisit = existingResult.status === 'fulfilled' ? existingResult.value : null;
       const preferredLocalities = prefData?.preferred_localities || [];
 
-      setLocalityOptions(options);
-
-      // If user already requested a visit for this flat, mark it
       if (existingVisit) {
         setAlreadyRequested(true);
       }
@@ -97,7 +98,6 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
 
       const bootErrors = [];
       if (prefsResult.status === 'rejected') bootErrors.push('preferences');
-      if (optionsResult.status === 'rejected') bootErrors.push('localities');
       if (overallBoundsResult.status === 'rejected') bootErrors.push('rent range');
       if (bootErrors.length) setError('Some visit details could not be loaded. You can still continue.');
       setLoadingPrefs(false);

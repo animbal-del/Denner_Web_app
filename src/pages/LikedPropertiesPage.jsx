@@ -1,33 +1,20 @@
 import { Link } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import PropertyCard from '../components/PropertyCard.jsx';
 import { useAuth } from '../services/authService.jsx';
 import { getSavedProperties } from '../services/savedPropertiesService.js';
 
 export default function LikedPropertiesPage() {
   const { profile } = useAuth();
-  const [savedProperties, setSavedProperties] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
 
-  useEffect(() => {
-    let active = true;
-    async function loadSaved() {
-      if (!profile?.id) return;
-      setLoading(true);
-      setError('');
-      try {
-        const data = await getSavedProperties(profile.id);
-        if (active) setSavedProperties(data);
-      } catch (err) {
-        if (active) setError(err.message || 'Unable to load your saved properties.');
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
-    loadSaved();
-    return () => { active = false; };
-  }, [profile?.id]);
+  const { data: savedProperties = [], isLoading: loading, error: queryError } = useQuery({
+    queryKey: ['saved-properties', profile?.id],
+    queryFn: () => getSavedProperties(profile.id),
+    enabled: Boolean(profile?.id),
+    staleTime: 2 * 60 * 1000,
+  });
+
+  const error = queryError?.message || '';
 
   return (
     <div className="page-shell">

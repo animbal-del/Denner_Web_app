@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../services/authService.jsx';
 import { updateUserProfile } from '../services/profileSettingsService.js';
 import { buildEmptyPreferences, getUserPreferences, upsertUserPreferences } from '../services/userPreferencesService.js';
@@ -29,7 +30,6 @@ export default function ProfilePage() {
   const { profile, refreshProfile } = useAuth();
   const [profileForm, setProfileForm] = useState({ full_name: '', phone: '', email: '', city: '', state: '' });
   const [preferenceForm, setPreferenceForm] = useState({ ...buildEmptyPreferences(), localities: ['', '', ''] });
-  const [localityOptions, setLocalityOptions] = useState([]);
   const [bounds, setBounds] = useState({ min: 0, max: 0 });
   const [budgetRange, setBudgetRange] = useState({ min: 0, max: 0 });
   const [loading, setLoading] = useState(true);
@@ -42,6 +42,12 @@ export default function ProfilePage() {
   const [editingPreferences, setEditingPreferences] = useState(false);
 
   const selectedLocalities = useMemo(() => normalizeLocalities(preferenceForm.localities), [preferenceForm.localities]);
+
+  const { data: localityOptions = [] } = useQuery({
+    queryKey: ['localities'],
+    queryFn: getAvailableLocalities,
+    staleTime: 10 * 60 * 1000,
+  });
 
   useEffect(() => {
     setProfileForm({
@@ -60,18 +66,12 @@ export default function ProfilePage() {
       setLoading(true);
       setError('');
       try {
-        const [dataResult, optionsResult] = await Promise.allSettled([
-          getUserPreferences(profile.id),
-          getAvailableLocalities(),
-        ]);
+        const data = await getUserPreferences(profile.id).catch(() => buildEmptyPreferences());
         if (!active) return;
-        const data = dataResult.status === 'fulfilled' ? dataResult.value : buildEmptyPreferences();
-        const options = optionsResult.status === 'fulfilled' ? optionsResult.value : [];
         const preferredLocalities = data?.preferred_localities || [];
         const nextBounds = await getRentBoundsForLocalities(preferredLocalities).catch(() => ({ min: 0, max: 0 }));
         if (!active) return;
         const initialRange = clampRange(data?.rent_min ?? nextBounds.min, data?.rent_max ?? nextBounds.max, nextBounds);
-        setLocalityOptions(options || []);
         setBounds(nextBounds);
         setBudgetRange(initialRange);
         setPreferenceForm({

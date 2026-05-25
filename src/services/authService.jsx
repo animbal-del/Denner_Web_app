@@ -155,7 +155,7 @@ async function recoverSupabaseProfile(user, expectedRole = null) {
 
     const { data: mergedPartner } = await supabase
       .from('partner_profiles')
-      .select('*')
+      .select('id, profile_id, partner_type, company_name, locality, section, verification_status')
       .eq('profile_id', profile.id)
       .maybeSingle();
 

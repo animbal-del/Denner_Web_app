@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../services/authService.jsx';
 import { createUrgentHelpRequest, buildEmptyUrgentHelp } from '../services/urgentHelpService.js';
 import { getAvailableLocalities, getRentBoundsForLocalities } from '../services/publicPropertiesService.js';
@@ -31,15 +32,19 @@ export default function UrgentHelpPage() {
   const navigate = useNavigate();
 
   const [form, setForm] = useState(() => ({ ...buildEmptyUrgentHelp(profile), preferred_localities: ['', '', ''] }));
-  const [localityOptions, setLocalityOptions] = useState([]);
   const [bounds, setBounds] = useState({ min: 0, max: 0 });
   const [budgetRange, setBudgetRange] = useState({ min: 0, max: 0 });
-  const [loadingOptions, setLoadingOptions] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
   const selectedLocalities = useMemo(() => normalizeLocalities(form.preferred_localities), [form.preferred_localities]);
+
+  const { data: localityOptions = [], isLoading: loadingOptions } = useQuery({
+    queryKey: ['localities'],
+    queryFn: getAvailableLocalities,
+    staleTime: 10 * 60 * 1000,
+  });
 
   useEffect(() => {
     setForm((prev) => ({
@@ -50,31 +55,6 @@ export default function UrgentHelpPage() {
       state: profile?.state || prev.state || '',
     }));
   }, [profile?.full_name, profile?.phone, profile?.city, profile?.state]);
-
-  useEffect(() => {
-    let active = true;
-    async function bootstrap() {
-      setLoadingOptions(true);
-      try {
-        const [optionsResult, boundsResult] = await Promise.allSettled([
-          getAvailableLocalities(),
-          getRentBoundsForLocalities([]),
-        ]);
-        if (!active) return;
-        const options = optionsResult.status === 'fulfilled' ? optionsResult.value : [];
-        const overallBounds = boundsResult.status === 'fulfilled' ? boundsResult.value : { min: 0, max: 0 };
-        setLocalityOptions(options || []);
-        setBounds(overallBounds);
-        setBudgetRange(clampRange(form.rent_min ?? overallBounds.min, form.rent_max ?? overallBounds.max, overallBounds));
-      } catch (err) {
-        if (active) setError(err.message || 'Unable to load locality options.');
-      } finally {
-        if (active) setLoadingOptions(false);
-      }
-    }
-    bootstrap();
-    return () => { active = false; };
-  }, []);
 
   useEffect(() => {
     let active = true;
