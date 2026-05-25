@@ -24,6 +24,7 @@ export default function PropertyCard({ property }) {
           imageClassName="property-media-image"
           videoClassName="property-media-video"
           placeholderClassName="property-media placeholder"
+          imgWidth={480}
         />
       </div>
       <div className="property-body">

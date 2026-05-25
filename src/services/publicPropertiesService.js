@@ -196,13 +196,17 @@ async function fetchShareCodeMap(flatIds) {
 async function fetchCoverMediaMap(flatIds, coverImageUrlMap = new Map()) {
   if (!flatIds.length) return new Map();
 
+  // Fetch at most 2 candidate rows per flat (cover-first ordering).
+  // chooseCoverCandidate picks the best from what arrives; for flats with
+  // no rows here the caller's coverImageUrlMap provides the fallback.
   const { data, error } = await supabase
     .from('inventory_flat_media')
     .select('id, flat_id, media_type, public_url, storage_path, is_cover, sort_order, created_at')
     .in('flat_id', flatIds)
     .order('is_cover', { ascending: false })
     .order('sort_order', { ascending: true })
-    .order('created_at', { ascending: true });
+    .order('created_at', { ascending: true })
+    .limit(flatIds.length * 2);
   if (error) throw error;
 
   // Group rows by flat

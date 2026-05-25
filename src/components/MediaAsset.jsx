@@ -12,6 +12,11 @@ function uniqueUrls(values = []) {
   return out;
 }
 
+function withWidth(url, width) {
+  if (!width || !url || !url.startsWith('/api/media')) return url;
+  return `${url}&w=${width}`;
+}
+
 export default function MediaAsset({
   media,
   alt = 'Property media',
@@ -22,10 +27,11 @@ export default function MediaAsset({
   imageLoading = 'lazy',
   imageDecoding = 'async',
   videoControls = false,
+  imgWidth = null,
 }) {
   const candidates = useMemo(
-    () => uniqueUrls([media?.url, ...(media?.fallback_urls || [])]),
-    [media?.url, media?.fallback_urls]
+    () => uniqueUrls([media?.url, ...(media?.fallback_urls || [])]).map((u) => withWidth(u, imgWidth)),
+    [media?.url, media?.fallback_urls, imgWidth]
   );
 
   const [index, setIndex] = useState(0);

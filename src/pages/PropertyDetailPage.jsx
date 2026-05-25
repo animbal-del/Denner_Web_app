@@ -23,6 +23,7 @@ function MediaStage({ media, title }) {
       videoClassName="detail-hero-video"
       placeholderClassName="detail-stage placeholder"
       videoControls
+      imgWidth={1200}
     />
   );
 }
@@ -59,6 +60,7 @@ function LazyThumb({ media, index, activeIndex, onClick }) {
           imageClassName="thumb-media-image"
           videoClassName="thumb-media-video"
           placeholderClassName="thumb-media thumb-placeholder"
+          imgWidth={160}
         />
       ) : (
         <div className="thumb-media thumb-placeholder" />
