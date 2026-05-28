@@ -20,7 +20,7 @@ const OLD_URL        = process.env.OLD_SUPABASE_URL        || 'https://hmfjpgytb
 const OLD_KEY        = process.env.OLD_SERVICE_ROLE_KEY    || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhtZmpwZ3l0YndwbGxla3doa3BpIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDkxODcxOCwiZXhwIjoyMDkwNDk0NzE4fQ.X7oiGjuK8rGSO6cKtTjCZLyihBlPi2zRsk8yzlgeNaE';
 const NEW_URL        = process.env.NEW_SUPABASE_URL        || '';   // ← fill in after creating new project
 const NEW_KEY        = process.env.NEW_SERVICE_ROLE_KEY    || '';   // ← fill in after creating new project
-const BUCKET         = process.env.BUCKET                  || 'property-media';
+const BUCKET         = process.env.BUCKET                  || 'property-photos';
 
 const SIGNED_URL_TTL = 60 * 60 * 24 * 7; // 7 days
 const CONCURRENT     = 3;                 // parallel uploads at a time

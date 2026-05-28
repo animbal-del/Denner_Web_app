@@ -4,3 +4,11 @@ dist
 .env.local
 .vercel
 .DS_Store
+.mcp.json
+
+# Supabase DB exports (extracted data — not for version control)
+scripts/data.sql
+scripts/schema.sql
+scripts/storage-paths.json
+scripts/add-indexes.sql
+storage-backup/
