@@ -45,7 +45,7 @@ export default async function handler(req, res) {
       !contentType.includes('svg') &&
       !contentType.includes('gif');
 
-    const CACHE = 'public, s-maxage=86400, max-age=3600, stale-while-revalidate=604800';
+    const CACHE = 'public, s-maxage=31536000, max-age=604800, stale-while-revalidate=604800';
 
     if (width && isResizableImage) {
       try {

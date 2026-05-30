@@ -7,8 +7,13 @@ import { createClient } from '@supabase/supabase-js';
 import { writeFileSync, mkdirSync, readFileSync } from 'fs';
 import { dirname } from 'path';
 
-const URL  = 'https://hmfjpgytbwpllekwhkpi.supabase.co';
-const KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhtZmpwZ3l0YndwbGxla3doa3BpIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDkxODcxOCwiZXhwIjoyMDkwNDk0NzE4fQ.X7oiGjuK8rGSO6cKtTjCZLyihBlPi2zRsk8yzlgeNaE';
+const URL  = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_KEY || '';
+
+if (!URL || !KEY) {
+  console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars');
+  process.exit(1);
+}
 const BUCKET = 'property-photos';
 const OUT_DIR = './storage-backup';
 const CONCURRENT = 3;

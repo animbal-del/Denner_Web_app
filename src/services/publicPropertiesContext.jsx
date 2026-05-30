@@ -28,13 +28,13 @@ export function PublicPropertiesProvider({ children }) {
     queryFn: ({ pageParam }) => getPreviewPropertiesPage(pageParam, PUBLIC_PAGE_SIZE),
     initialPageParam: 1,
     getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.page + 1 : undefined,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 15 * 60 * 1000,
   });
 
   const { data: filterOptions = DEFAULT_FILTER_OPTIONS } = useQuery({
     queryKey: ['filter-options'],
     queryFn: getFilterOptions,
-    staleTime: 10 * 60 * 1000,
+    staleTime: 30 * 60 * 1000,
   });
 
   const properties = useMemo(
