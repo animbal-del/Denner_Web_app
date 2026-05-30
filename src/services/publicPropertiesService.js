@@ -154,18 +154,20 @@ function buildMediaCandidates(mediaRow, signedUrlMap = new Map(), extraFallbacks
       // Videos are too large to proxy — use signed URL directly
       if (signedUrlMap.has(normalized)) candidates.push(signedUrlMap.get(normalized));
     } else {
-      // Images: proxy through /api/media so Vercel CDN caches the response
-      // Falls back to signed URL in dev (proxy returns 404 from Vite server)
-      candidates.push(`/api/media?path=${encodeURIComponent(normalized)}`);
+      // Images: prefer public URL to avoid double-egress through /api/media proxy.
+      // The proxy fetches from Supabase Storage on every Vercel edge cache miss,
+      // multiplying egress across edge regions. Public URLs let Supabase's own CDN
+      // handle caching with a single egress point.
+      const publicUrl = getPublicMediaUrl(normalized);
+      if (publicUrl) candidates.push(publicUrl);
+      // Keep proxy as fallback (resizes + converts to WebP)
+      candidates.push(`/api/media?path=${encodeURIComponent(normalized)}&w=800&q=80`);
       if (signedUrlMap.has(normalized)) candidates.push(signedUrlMap.get(normalized));
     }
   }
 
   // Stored public_url (direct CDN or public storage URL from DB)
   if (looksLikeHttpUrl(mediaRow?.public_url)) candidates.push(mediaRow.public_url);
-
-  // Supabase public storage URL (works if bucket is public)
-  if (normalized) candidates.push(getPublicMediaUrl(normalized));
 
   // Extra fallbacks
   for (const url of extraFallbacks) {

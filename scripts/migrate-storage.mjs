@@ -16,8 +16,8 @@
 import { createClient } from '@supabase/supabase-js';
 
 // ── Configuration ─────────────────────────────────────────────
-const OLD_URL        = process.env.OLD_SUPABASE_URL        || 'https://hmfjpgytbwpllekwhkpi.supabase.co';
-const OLD_KEY        = process.env.OLD_SERVICE_ROLE_KEY    || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhtZmpwZ3l0YndwbGxla3doa3BpIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDkxODcxOCwiZXhwIjoyMDkwNDk0NzE4fQ.X7oiGjuK8rGSO6cKtTjCZLyihBlPi2zRsk8yzlgeNaE';
+const OLD_URL        = process.env.OLD_SUPABASE_URL        || '';
+const OLD_KEY        = process.env.OLD_SERVICE_ROLE_KEY    || '';
 const NEW_URL        = process.env.NEW_SUPABASE_URL        || '';   // ← fill in after creating new project
 const NEW_KEY        = process.env.NEW_SERVICE_ROLE_KEY    || '';   // ← fill in after creating new project
 const BUCKET         = process.env.BUCKET                  || 'property-photos';

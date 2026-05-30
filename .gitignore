@@ -12,3 +12,4 @@ scripts/schema.sql
 scripts/storage-paths.json
 scripts/add-indexes.sql
 storage-backup/
+.ii-structure/
