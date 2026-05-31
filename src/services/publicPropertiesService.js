@@ -1,622 +1,70 @@
 import { hasSupabase, supabase } from '../lib/supabaseClient.js';
-import { hasStorageClient, storageClient } from '../lib/storageClient.js';
 
-const MEDIA_BUCKET = import.meta.env.VITE_SUPABASE_STORAGE_BUCKET || 'property-media';
-const PUBLIC_PAGE_SIZE = 12;
+export const PUBLIC_PAGE_SIZE = 12;
 
-/* ── Helpers ───────────────────────────────────────────────── */
+// ── HTTP helper ──────────────────────────────────────────────
 
-function sortMedia(items = []) {
-  return [...items].sort((a, b) => {
-    if ((a.is_cover ? 1 : 0) !== (b.is_cover ? 1 : 0)) return (b.is_cover ? 1 : 0) - (a.is_cover ? 1 : 0);
-    if ((a.sort_order || 0) !== (b.sort_order || 0)) return (a.sort_order || 0) - (b.sort_order || 0);
-    return String(a.created_at || '').localeCompare(String(b.created_at || ''));
-  });
+async function apiFetch(path) {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
 }
 
-function makePropertyRef(row) {
-  return row.share_code || `flat-${row.id}`;
+// ── CDN-cached routes (go through Vercel edge) ───────────────
+// These never hit Supabase directly from the browser.
+// First request per cache key → Vercel serverless → Supabase.
+// All subsequent requests within the TTL → served from Vercel CDN.
+
+export async function getFilterOptions() {
+  return apiFetch('/api/filter-options');
 }
 
-/**
- * Extract the bare storage object key from any URL or path format.
- * Must return the path AFTER the bucket name, with no query string.
- *
- * Handles:
- *   https://.../object/public/property-media/flat-1/a.jpg   → flat-1/a.jpg
- *   https://.../object/sign/property-media/flat-1/a.jpg?token=X → flat-1/a.jpg
- *   https://.../object/authenticated/property-media/flat-1/a.jpg → flat-1/a.jpg
- *   property-media/flat-1/a.jpg → flat-1/a.jpg
- *   flat-1/a.jpg → flat-1/a.jpg
- */
-function normalizeStoragePath(path = '') {
-  let s = String(path || '').trim();
-  if (!s) return '';
-
-  // Strip full Supabase storage URLs (public, sign, authenticated)
-  s = s.replace(
-    /^https?:\/\/[^/]+\/storage\/v1\/object\/(?:public|sign|authenticated)\/[^/]+\//i,
-    ''
-  );
-
-  // Strip any query string (signed URL token, cache-busters etc.)
-  const qIdx = s.indexOf('?');
-  if (qIdx !== -1) s = s.slice(0, qIdx);
-
-  // Strip bucket-name prefix if still present
-  s = s
-    .replace(/^public\/property-media\//i, '')
-    .replace(/^property-media\//i, '')
-    .replace(/^\/+/, '')
-    .trim();
-
-  return s;
+export async function getAvailableLocalities() {
+  const data = await apiFetch('/api/filter-options');
+  return data.localities || [];
 }
 
-function looksLikeHttpUrl(value = '') {
-  return /^https?:\/\//i.test(String(value || '').trim());
+export async function getPreviewPropertiesPage(page = 1) {
+  return apiFetch(`/api/properties?page=${page}`);
 }
 
-function mediaTypeRank(type) {
-  const v = String(type || '').toLowerCase();
-  if (['image', 'photo', 'img'].includes(v)) return 3;
-  if (['video', 'vid'].includes(v)) return 2;
-  return 1;
+export async function fetchPropertiesWithFilters(filters = {}, page = 1) {
+  const params = new URLSearchParams({ page: String(page) });
+  if (filters.localities?.length) params.set('localities', filters.localities.join(','));
+  if (filters.city)             params.set('city', filters.city);
+  if (filters.propertyType)     params.set('propertyType', filters.propertyType);
+  if (filters.furnishingStatus) params.set('furnishingStatus', filters.furnishingStatus);
+  if (filters.bhk)              params.set('bhk', filters.bhk);
+  if (filters.sortBy)           params.set('sortBy', filters.sortBy);
+  if (filters.search)           params.set('search', filters.search);
+  return apiFetch(`/api/properties?${params}`);
 }
 
-function chooseCoverCandidate(rows = []) {
-  return rows.slice().sort((a, b) => {
-    const sa = [(a.is_cover ? 1 : 0), mediaTypeRank(a.media_type), -(a.sort_order || 0)];
-    const sb = [(b.is_cover ? 1 : 0), mediaTypeRank(b.media_type), -(b.sort_order || 0)];
-    for (let i = 0; i < sa.length; i++) if (sa[i] !== sb[i]) return sb[i] - sa[i];
-    return 0;
-  })[0] || null;
-}
-
-function getPublicMediaUrl(storagePath) {
-  const normalized = normalizeStoragePath(storagePath);
-  if (!normalized) return '';
-  const client = storageClient || supabase;
-  if (!client) return '';
-  const { data } = client.storage.from(MEDIA_BUCKET).getPublicUrl(normalized);
-  return data?.publicUrl || '';
-}
-
-/* ── Signed URL generation ─────────────────────────────────── */
-
-/**
- * Create signed URLs for a list of media rows.
- *
- * Uses storageClient (service role / media key) when available — this
- * bypasses bucket RLS so ALL properties get signed URLs regardless of
- * whether the bucket is public or private.
- *
- * Falls back to the anon client (works only if bucket policy allows anon reads).
- * Returns empty map on any failure.
- */
-async function createSignedMediaUrlMap(rows = []) {
-  const client = hasStorageClient ? storageClient : supabase;
-  if (!client) return new Map();
-
-  // Collect unique, non-empty normalized paths
-  const paths = [
-    ...new Set(
-      (rows || [])
-        .map((r) => normalizeStoragePath(r?.storage_path || r?.public_url || ''))
-        .filter(Boolean)
-    ),
-  ];
-  if (!paths.length) return new Map();
-
-  // Supabase caps createSignedUrls at 10 paths per call — batch if needed
-  const BATCH = 10;
-  const out = new Map();
-
-  for (let i = 0; i < paths.length; i += BATCH) {
-    const chunk = paths.slice(i, i + BATCH);
-    try {
-      const { data, error } = await client.storage
-        .from(MEDIA_BUCKET)
-        .createSignedUrls(chunk, 60 * 60 * 24 * 7); // 7-day tokens
-
-      if (!error && Array.isArray(data)) {
-        data.forEach((entry, idx) => {
-          if (entry?.signedUrl) out.set(chunk[idx], entry.signedUrl);
-        });
-      }
-    } catch {
-      // Ignore — other fallbacks will handle it
-    }
-  }
-
-  return out;
-}
-
-/* ── Candidate URL builder ─────────────────────────────────── */
-
-/**
- * Return an ordered list of URLs to try for a media row.
- * MediaAsset.jsx cycles through these via onError until one loads.
- *
- * Priority:
- *  1. Signed URL — token-based, works for private buckets, no auth needed by viewer
- *  2. Stored public_url — direct CDN or public storage URL from DB
- *  3. Generated public storage URL — works if bucket is public
- *  4. Extra fallbacks (e.g. cover_image_url from the flat row)
- */
-function buildMediaCandidates(mediaRow, signedUrlMap = new Map(), extraFallbacks = []) {
-  const normalized = normalizeStoragePath(mediaRow?.storage_path || mediaRow?.public_url || '');
-  const isVideo = String(mediaRow?.media_type || '').toLowerCase() === 'video';
-  const candidates = [];
-
-  if (normalized) {
-    if (isVideo) {
-      // Videos: public URL first — same URL for all users so Supabase CDN can cache it.
-      // Signed URL as fallback only (unique token per session = CDN bypass = high egress).
-      candidates.push(getPublicMediaUrl(normalized));
-      if (signedUrlMap.has(normalized)) candidates.push(signedUrlMap.get(normalized));
-    } else {
-      // Images: Vercel proxy — CDN-cached at edge, resized on-the-fly.
-      candidates.push(`/api/media?path=${encodeURIComponent(normalized)}`);
-    }
-  }
-
-  // Stored public_url from DB as fallback
-  if (looksLikeHttpUrl(mediaRow?.public_url)) candidates.push(mediaRow.public_url);
-
-  // Extra fallbacks
-  for (const url of extraFallbacks) {
-    if (looksLikeHttpUrl(url)) candidates.push(url);
-  }
-
-  return [...new Set(candidates.filter(Boolean))];
-}
-
-/* ── Database fetchers ─────────────────────────────────────── */
-
-async function fetchShareCodeMap(flatIds) {
-  if (!flatIds.length) return new Map();
-  const { data, error } = await supabase
-    .from('property_share_links')
-    .select('flat_id, share_code, is_active, created_at')
-    .in('flat_id', flatIds)
-    .eq('is_active', true)
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  const map = new Map();
-  for (const row of data || []) {
-    if (!map.has(row.flat_id) && row.share_code) map.set(row.flat_id, row.share_code);
-  }
-  return map;
-}
-
-async function fetchCoverMediaMap(flatIds, coverImageUrlMap = new Map()) {
-  if (!flatIds.length) return new Map();
-
-  // Fetch at most 2 candidate rows per flat (cover-first ordering).
-  // chooseCoverCandidate picks the best from what arrives; for flats with
-  // no rows here the caller's coverImageUrlMap provides the fallback.
-  const { data, error } = await supabase
-    .from('inventory_flat_media')
-    .select('id, flat_id, media_type, public_url, storage_path, is_cover, sort_order, created_at')
-    .in('flat_id', flatIds)
-    .order('is_cover', { ascending: false })
-    .order('sort_order', { ascending: true })
-    .order('created_at', { ascending: true })
-    .limit(flatIds.length * 2);
-  if (error) throw error;
-
-  // Group rows by flat
-  const grouped = new Map();
-  for (const row of data || []) {
-    if (!grouped.has(row.flat_id)) grouped.set(row.flat_id, []);
-    grouped.get(row.flat_id).push(row);
-  }
-
-  // Pick the best cover row per flat
-  const chosenRows = [];
-  for (const flatId of flatIds) {
-    const chosen = chooseCoverCandidate(grouped.get(flatId) || []);
-    if (chosen) chosenRows.push(chosen);
-  }
-
-  // Only generate signed URLs for video rows — images use the /api/media proxy
-  const videoRows = chosenRows.filter((r) => String(r.media_type || '').toLowerCase() === 'video');
-  const signedUrlMap = await createSignedMediaUrlMap(videoRows);
-
-  const out = new Map();
-
-  for (const row of chosenRows) {
-    const normalized = normalizeStoragePath(row.storage_path || row.public_url);
-    const coverUrl = coverImageUrlMap.get(row.flat_id) || '';
-    const candidates = buildMediaCandidates(row, signedUrlMap, [coverUrl]);
-
-    // Even if candidates is empty, include a placeholder so the flat appears
-    out.set(row.flat_id, [{
-      id: row.id,
-      flat_id: row.flat_id,
-      media_type: row.media_type,
-      url: candidates[0] || '',
-      fallback_urls: candidates.slice(1),
-      storage_path: normalized,
-      is_cover: row.is_cover,
-      sort_order: row.sort_order || 0,
-      created_at: row.created_at,
-    }]);
-  }
-
-  // Flats with NO media rows at all → use cover_image_url directly
-  for (const flatId of flatIds) {
-    if (!out.has(flatId)) {
-      const coverUrl = coverImageUrlMap.get(flatId) || '';
-      if (looksLikeHttpUrl(coverUrl)) {
-        out.set(flatId, [{
-          id: `cover-${flatId}`,
-          flat_id: flatId,
-          media_type: 'image',
-          url: coverUrl,
-          fallback_urls: [],
-          storage_path: null,
-          is_cover: true,
-          sort_order: 0,
-          created_at: null,
-        }]);
-      }
-    }
-  }
-
-  return out;
-}
-
-async function fetchAllMediaForFlat(flatId) {
-  if (!flatId) return [];
-
-  const { data, error } = await supabase
-    .from('inventory_flat_media')
-    .select('id, flat_id, media_type, public_url, storage_path, is_cover, sort_order, created_at')
-    .eq('flat_id', flatId)
-    .order('sort_order', { ascending: true })
-    .order('created_at', { ascending: true });
-  if (error) throw error;
-
-  const rows = data || [];
-  // Only generate signed URLs for videos (as CDN fallback) — images go through /api/media proxy
-  const videoRows = rows.filter((r) => String(r.media_type || '').toLowerCase() === 'video');
-  const signedUrlMap = videoRows.length ? await createSignedMediaUrlMap(videoRows) : new Map();
-
-  return sortMedia(
-    rows
-      .map((row) => ({
-        id: row.id,
-        flat_id: row.flat_id,
-        media_type: row.media_type,
-        url: buildMediaCandidates(row, signedUrlMap)[0] || '',
-        fallback_urls: buildMediaCandidates(row, signedUrlMap).slice(1),
-        storage_path: normalizeStoragePath(row.storage_path || row.public_url),
-        is_cover: row.is_cover,
-        sort_order: row.sort_order || 0,
-        created_at: row.created_at,
-      }))
-      .filter((item) => item.url)
-  );
-}
-
-/* ── Property normaliser ───────────────────────────────────── */
-
-function normalizeProperty(row, mediaMap, shareCodeMap) {
-  const media = mediaMap.get(row.id) || [];
-
-  const fallbackCover =
-    row.cover_image_url && looksLikeHttpUrl(row.cover_image_url)
-      ? [{
-          id: `cover-${row.id}`,
-          flat_id: row.id,
-          media_type: 'image',
-          url: row.cover_image_url,
-          fallback_urls: [],
-          storage_path: null,
-          is_cover: true,
-          sort_order: 0,
-        }]
-      : [];
-
-  return {
-    id: row.id,
-    share_code: makePropertyRef({ ...row, share_code: shareCodeMap.get(row.id) || row.share_code || null }),
-    society_name: row.society_name,
-    city: row.city,
-    locality: row.locality,
-    sub_locality: row.sub_locality || null,
-    bhk: row.bhk,
-    property_type: row.property_type || 'Flat',
-    monthly_rent: row.monthly_rent,
-    deposit: row.deposit || 0,
-    maintenance: row.maintenance || 0,
-    furnishing_status: row.furnishing_status || 'Not specified',
-    sq_ft: row.sq_ft,
-    bathrooms: row.bathrooms,
-    balconies: row.balconies,
-    available_from: row.available_from,
-    listing_status: row.listing_status,
-    business_status: row.business_status,
-    visibility_status: row.visibility_status,
-    description: row.description || '',
-    handler_whatsapp_number: row.handler_whatsapp_number || null,
-    handler_name: row.handler_name || null,
-    highlights: [row.furnishing_status, row.property_type].filter(Boolean).slice(0, 2),
-    media: media.length ? media : fallbackCover,
-  };
-}
-
-/* ── Public query selects ──────────────────────────────────── */
-
-const PUBLIC_SELECT = `
-  id, society_name, city, locality, sub_locality, bhk, property_type,
-  monthly_rent, deposit, maintenance, furnishing_status, sq_ft,
-  bathrooms, balconies, available_from, listing_status, business_status,
-  visibility_status, description, cover_image_url,
-  handler_whatsapp_number, handler_name, updated_at
-`;
-
-/* ── Page & detail fetchers ────────────────────────────────── */
-
-async function fetchFilteredPage(filters = {}, page = 1, pageSize = PUBLIC_PAGE_SIZE) {
-  const {
-    localities = [],
-    city = '',
-    propertyType = '',
-    furnishingStatus = '',
-    bhk = '',
-    sortBy = 'newest',
-    search = '',
-  } = filters;
-
-  const start = Math.max(0, (page - 1) * pageSize);
-  const end = start + pageSize;
-
-  let q = supabase.from('public_listings').select(PUBLIC_SELECT);
-
-  if (localities.length > 0) q = q.in('locality', localities);
-  if (city)             q = q.eq('city', city);
-  if (propertyType)     q = q.eq('property_type', propertyType);
-  if (furnishingStatus) q = q.eq('furnishing_status', furnishingStatus);
-  // BHK: prefix ilike covers "2 BHK", "2BHK", "2". "4+" is handled client-side.
-  if (bhk && bhk !== '4+') q = q.ilike('bhk', `${bhk}%`);
-
-  if (search) {
-    const safe = search.replace(/%/g, '\\%').replace(/_/g, '\\_');
-    q = q.or(
-      `society_name.ilike.%${safe}%,locality.ilike.%${safe}%,sub_locality.ilike.%${safe}%,city.ilike.%${safe}%`
-    );
-  }
-
-  if (sortBy === 'rent-low')       q = q.order('monthly_rent', { ascending: true }).order('id', { ascending: true });
-  else if (sortBy === 'rent-high') q = q.order('monthly_rent', { ascending: false }).order('id', { ascending: false });
-  else                             q = q.order('updated_at', { ascending: false });
-
-  q = q.range(start, end);
-
-  const { data, error } = await q;
-  if (error) throw error;
-
-  const rows = data || [];
-  const hasMore = rows.length > pageSize;
-  const pageRows = hasMore ? rows.slice(0, pageSize) : rows;
-  const flatIds = pageRows.map((r) => r.id);
-
-  const coverImageUrlMap = new Map(
-    pageRows.filter((r) => looksLikeHttpUrl(r.cover_image_url)).map((r) => [r.id, r.cover_image_url])
-  );
-
-  const [coverMediaMap, shareCodeMap] = await Promise.all([
-    fetchCoverMediaMap(flatIds, coverImageUrlMap),
-    fetchShareCodeMap(flatIds),
-  ]);
-
-  return {
-    items: pageRows.map((r) => normalizeProperty(r, coverMediaMap, shareCodeMap)),
-    hasMore,
-    page,
-    pageSize,
-  };
-}
-
-async function fetchSupabasePropertiesPage(page = 1, pageSize = PUBLIC_PAGE_SIZE) {
-  const start = Math.max(0, (page - 1) * pageSize);
-  const end = start + pageSize;
-
-  const { data, error } = await supabase
-    .from('public_listings')
-    .select(PUBLIC_SELECT)
-    .order('updated_at', { ascending: false })
-    .range(start, end);
-  if (error) throw error;
-
-  const rows = data || [];
-  const hasMore = rows.length > pageSize;
-  const pageRows = hasMore ? rows.slice(0, pageSize) : rows;
-  const flatIds = pageRows.map((r) => r.id);
-
-  const coverImageUrlMap = new Map(
-    pageRows
-      .filter((r) => looksLikeHttpUrl(r.cover_image_url))
-      .map((r) => [r.id, r.cover_image_url])
-  );
-
-  const [coverMediaMap, shareCodeMap] = await Promise.all([
-    fetchCoverMediaMap(flatIds, coverImageUrlMap),
-    fetchShareCodeMap(flatIds),
-  ]);
-
-  return {
-    items: pageRows.map((r) => normalizeProperty(r, coverMediaMap, shareCodeMap)),
-    hasMore,
-    page,
-    pageSize,
-  };
-}
-
-async function fetchSupabasePropertyByRef(propertyRef) {
-  let row = null;
-  let shareCode = null;
-  const flatIdMatch = /^flat-(\d+)$/i.exec(propertyRef);
-
-  if (flatIdMatch) {
-    const flatId = Number(flatIdMatch[1]);
-    const { data, error } = await supabase
-      .from('public_listings')
-      .select(PUBLIC_SELECT)
-      .eq('id', flatId)
-      .maybeSingle();
-    if (error) throw error;
-    row = data;
-  } else {
-    const { data: linkRow, error: linkError } = await supabase
-      .from('property_share_links')
-      .select('flat_id, share_code, is_active')
-      .eq('share_code', propertyRef)
-      .eq('is_active', true)
-      .maybeSingle();
-    if (linkError) throw linkError;
-    if (!linkRow?.flat_id) return null;
-    shareCode = linkRow.share_code;
-
-    const { data, error } = await supabase
-      .from('public_listings')
-      .select(PUBLIC_SELECT)
-      .eq('id', linkRow.flat_id)
-      .maybeSingle();
-    if (error) throw error;
-    row = data;
-  }
-
-  if (!row) return null;
-
-  const media = await fetchAllMediaForFlat(row.id);
-  const shareCodeMap = new Map();
-  if (shareCode) shareCodeMap.set(row.id, shareCode);
-  return normalizeProperty(row, new Map([[row.id, media]]), shareCodeMap);
-}
-
-/* ── Exports ───────────────────────────────────────────────── */
-
-export async function fetchPropertiesWithFilters(filters = {}, page = 1, pageSize = PUBLIC_PAGE_SIZE) {
-  if (!hasSupabase) throw new Error('Supabase is not configured.');
-  return fetchFilteredPage(filters, page, pageSize);
-}
-
-export async function getPreviewPropertiesPage(page = 1, pageSize = PUBLIC_PAGE_SIZE) {
-  if (!hasSupabase) throw new Error('Supabase is not configured.');
-  return fetchSupabasePropertiesPage(page, pageSize);
+export async function fetchPropertiesForLocalitiesPage(localities = [], page = 1) {
+  return fetchPropertiesWithFilters({ localities }, page);
 }
 
 export async function fetchPreviewPropertiesByIds(flatIds = []) {
-  if (!hasSupabase) throw new Error('Supabase is not configured.');
   const ids = [...new Set((flatIds || []).map(Number).filter(Boolean))];
   if (!ids.length) return [];
-
-  const { data, error } = await supabase
-    .from('public_listings')
-    .select(PUBLIC_SELECT)
-    .in('id', ids);
-  if (error) throw error;
-
-  const rows = data || [];
-  const rowMap = new Map(rows.map((r) => [r.id, r]));
-  const ordered = ids.map((id) => rowMap.get(id)).filter(Boolean);
-  const orderedIds = ordered.map((r) => r.id);
-
-  const coverImageUrlMap = new Map(
-    ordered
-      .filter((r) => looksLikeHttpUrl(r.cover_image_url))
-      .map((r) => [r.id, r.cover_image_url])
-  );
-
-  const [coverMediaMap, shareCodeMap] = await Promise.all([
-    fetchCoverMediaMap(orderedIds, coverImageUrlMap),
-    fetchShareCodeMap(orderedIds),
-  ]);
-
-  return ordered.map((r) => normalizeProperty(r, coverMediaMap, shareCodeMap));
+  return apiFetch(`/api/properties?ids=${ids.join(',')}`);
 }
 
-export async function fetchPropertiesForLocalitiesPage(localities = [], page = 1, pageSize = PUBLIC_PAGE_SIZE) {
-  if (!hasSupabase) throw new Error('Supabase is not configured.');
-  const locs = [...new Set((localities || []).map((l) => String(l || '').trim()).filter(Boolean))];
-  if (!locs.length) return { items: [], hasMore: false, page, pageSize };
-
-  const start = (page - 1) * pageSize;
-  const end = start + pageSize;
-
-  const { data, error } = await supabase
-    .from('public_listings')
-    .select(PUBLIC_SELECT)
-    .in('locality', locs)
-    .order('updated_at', { ascending: false })
-    .range(start, end);
-  if (error) throw error;
-
-  const rows = data || [];
-  const hasMore = rows.length > pageSize;
-  const pageRows = hasMore ? rows.slice(0, pageSize) : rows;
-  if (!pageRows.length) return { items: [], hasMore: false, page, pageSize };
-
-  const flatIds = pageRows.map((r) => r.id);
-  const coverImageUrlMap = new Map(
-    pageRows.filter((r) => looksLikeHttpUrl(r.cover_image_url)).map((r) => [r.id, r.cover_image_url])
-  );
-  const [coverMediaMap, shareCodeMap] = await Promise.all([
-    fetchCoverMediaMap(flatIds, coverImageUrlMap),
-    fetchShareCodeMap(flatIds),
-  ]);
-  return {
-    items: pageRows.map((r) => normalizeProperty(r, coverMediaMap, shareCodeMap)),
-    hasMore,
-    page,
-    pageSize,
-  };
-}
-
-export async function getPreviewPropertyByShareCode(propertyRef) {
-  if (!hasSupabase) throw new Error('Supabase is not configured.');
-  return fetchSupabasePropertyByRef(propertyRef);
+export async function getPreviewPropertyByShareCode(shareCode) {
+  return apiFetch(`/api/property?shareCode=${encodeURIComponent(shareCode)}`);
 }
 
 export function getCoverImage(property) {
   return property?.media?.[0]?.url || '';
 }
 
-export async function getFilterOptions() {
-  if (!hasSupabase) throw new Error('Supabase is not configured.');
-
-  const { data, error } = await supabase.rpc('get_filter_options');
-  if (error) throw error;
-
-  const result = data || {};
-  return {
-    cities: result.cities || [],
-    localities: result.localities || [],
-    propertyTypes: result.propertyTypes || [],
-    furnishingStatuses: result.furnishingStatuses || [],
-    rentBounds: {
-      min: result.minRent || 0,
-      max: result.maxRent || 0,
-    },
-  };
-}
-
-export async function getAvailableLocalities() {
-  if (!hasSupabase) throw new Error('Supabase is not configured.');
-  const { data, error } = await supabase.rpc('get_filter_options');
-  if (error) throw error;
-  return (data?.localities || []);
-}
+// ── Direct Supabase (dynamic / user-specific queries) ────────
+// These don't benefit from CDN caching: rent bounds change per locality
+// selection and are already cached in TanStack Query for 5 minutes.
 
 export async function getRentBoundsForLocalities(localities = []) {
   if (!hasSupabase) throw new Error('Supabase is not configured.');
-  const selected = [
-    ...new Set((localities || []).map((l) => String(l || '').trim()).filter(Boolean)),
-  ].slice(0, 3);
+  const selected = [...new Set((localities || []).map((l) => String(l || '').trim()).filter(Boolean))].slice(0, 3);
 
   function base() {
     let q = supabase.from('public_listings').select('monthly_rent').not('monthly_rent', 'is', null);
@@ -634,8 +82,5 @@ export async function getRentBoundsForLocalities(localities = []) {
 
   const min = Number(minData?.[0]?.monthly_rent || 0);
   const max = Number(maxData?.[0]?.monthly_rent || 0);
-  if (!min || !max) return { min: 0, max: 0 };
-  return { min, max };
+  return (!min || !max) ? { min: 0, max: 0 } : { min, max };
 }
-
-export { PUBLIC_PAGE_SIZE };
