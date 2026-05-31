@@ -520,67 +520,30 @@ export function getCoverImage(property) {
   return property?.media?.[0]?.url || '';
 }
 
-export async function fetchAllProperties() {
-  if (!hasSupabase) throw new Error('Supabase is not configured.');
-
-  const { data, error } = await supabase
-    .from('public_listings')
-    .select(PUBLIC_SELECT)
-    .order('updated_at', { ascending: false })
-    .limit(500);
-  if (error) throw error;
-
-  const rows = data || [];
-  if (!rows.length) return [];
-
-  const flatIds = rows.map((r) => r.id);
-  const coverImageUrlMap = new Map(
-    rows.filter((r) => looksLikeHttpUrl(r.cover_image_url)).map((r) => [r.id, r.cover_image_url])
-  );
-  const [coverMediaMap, shareCodeMap] = await Promise.all([
-    fetchCoverMediaMap(flatIds, coverImageUrlMap),
-    fetchShareCodeMap(flatIds),
-  ]);
-  return rows.map((r) => normalizeProperty(r, coverMediaMap, shareCodeMap));
-}
-
 export async function getFilterOptions() {
   if (!hasSupabase) throw new Error('Supabase is not configured.');
 
-  const { data, error } = await supabase
-    .from('public_listings')
-    .select('city, locality, property_type, furnishing_status, monthly_rent')
-    .limit(500);
+  const { data, error } = await supabase.rpc('get_filter_options');
   if (error) throw error;
 
-  const rows = data || [];
-  const unique = (key) =>
-    [...new Set(rows.map((r) => String(r[key] || '').trim()).filter(Boolean))].sort();
-
-  const rents = rows
-    .map((r) => Number(r.monthly_rent))
-    .filter((v) => Number.isFinite(v) && v > 0)
-    .sort((a, b) => a - b);
-
+  const result = data || {};
   return {
-    cities: unique('city'),
-    localities: unique('locality'),
-    propertyTypes: unique('property_type'),
-    furnishingStatuses: unique('furnishing_status'),
-    rentBounds: rents.length ? { min: rents[0], max: rents[rents.length - 1] } : { min: 0, max: 0 },
+    cities: result.cities || [],
+    localities: result.localities || [],
+    propertyTypes: result.propertyTypes || [],
+    furnishingStatuses: result.furnishingStatuses || [],
+    rentBounds: {
+      min: result.minRent || 0,
+      max: result.maxRent || 0,
+    },
   };
 }
 
 export async function getAvailableLocalities() {
   if (!hasSupabase) throw new Error('Supabase is not configured.');
-  const { data, error } = await supabase
-    .from('public_listings')
-    .select('locality')
-    .not('locality', 'is', null)
-    .order('locality', { ascending: true })
-    .limit(500);
+  const { data, error } = await supabase.rpc('get_filter_options');
   if (error) throw error;
-  return [...new Set((data || []).map((r) => String(r.locality || '').trim()).filter(Boolean))];
+  return (data?.localities || []);
 }
 
 export async function getRentBoundsForLocalities(localities = []) {

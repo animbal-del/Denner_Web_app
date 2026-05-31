@@ -1,5 +1,39 @@
--- Run this in the NEW Supabase project's SQL Editor after importing the schema.
--- These indexes match the exact query patterns used by the app.
+-- Run this in the Supabase SQL Editor (dashboard → SQL Editor → New query).
+-- Includes the get_filter_options() RPC (Phase 4) and indexes for common query patterns.
+
+-- ── get_filter_options RPC ────────────────────────────────────
+-- Replaces the 500-row × 5-column full scan in getFilterOptions().
+-- Returns all distinct filter values in a single round-trip using DISTINCT per column.
+
+CREATE OR REPLACE FUNCTION get_filter_options()
+RETURNS json
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT json_build_object(
+    'cities',
+      (SELECT COALESCE(json_agg(v ORDER BY v), '[]'::json)
+       FROM (SELECT DISTINCT city AS v FROM public_listings WHERE city IS NOT NULL AND city <> '') t),
+    'localities',
+      (SELECT COALESCE(json_agg(v ORDER BY v), '[]'::json)
+       FROM (SELECT DISTINCT locality AS v FROM public_listings WHERE locality IS NOT NULL AND locality <> '') t),
+    'propertyTypes',
+      (SELECT COALESCE(json_agg(v ORDER BY v), '[]'::json)
+       FROM (SELECT DISTINCT property_type AS v FROM public_listings WHERE property_type IS NOT NULL AND property_type <> '') t),
+    'furnishingStatuses',
+      (SELECT COALESCE(json_agg(v ORDER BY v), '[]'::json)
+       FROM (SELECT DISTINCT furnishing_status AS v FROM public_listings WHERE furnishing_status IS NOT NULL AND furnishing_status <> '') t),
+    'minRent',
+      (SELECT MIN(monthly_rent) FROM public_listings WHERE monthly_rent IS NOT NULL AND monthly_rent > 0),
+    'maxRent',
+      (SELECT MAX(monthly_rent) FROM public_listings WHERE monthly_rent IS NOT NULL AND monthly_rent > 0)
+  );
+$$;
+
+GRANT EXECUTE ON FUNCTION get_filter_options() TO anon, authenticated;
+
+-- ─────────────────────────────────────────────────────────────
 
 -- ── public_listings ───────────────────────────────────────────
 
