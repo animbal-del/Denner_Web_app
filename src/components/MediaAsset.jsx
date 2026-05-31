@@ -28,6 +28,7 @@ export default function MediaAsset({
   imageDecoding = 'async',
   videoControls = false,
   imgWidth = null,
+  poster = '',
 }) {
   const candidates = useMemo(
     () => uniqueUrls([media?.url, ...(media?.fallback_urls || [])]).map((u) => withWidth(u, imgWidth)),
@@ -75,7 +76,8 @@ export default function MediaAsset({
           controls={videoControls}
           muted={!videoControls}
           playsInline
-          preload="metadata"
+          preload="none"
+          poster={poster || undefined}
           onError={handleError}
         />
       </div>

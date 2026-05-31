@@ -25,6 +25,7 @@ export default function PropertyCard({ property }) {
           videoClassName="property-media-video"
           placeholderClassName="property-media placeholder"
           imgWidth={480}
+          poster={property.cover_image_url || ''}
         />
       </div>
       <div className="property-body">

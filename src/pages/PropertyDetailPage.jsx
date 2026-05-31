@@ -13,7 +13,7 @@ function formatCurrency(amount) {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
 }
 
-function MediaStage({ media, title }) {
+function MediaStage({ media, title, poster }) {
   return (
     <MediaAsset
       media={media}
@@ -24,6 +24,7 @@ function MediaStage({ media, title }) {
       placeholderClassName="detail-stage placeholder"
       videoControls
       imgWidth={1200}
+      poster={poster}
     />
   );
 }
@@ -97,6 +98,10 @@ export default function PropertyDetailPage() {
 
   const gallery = useMemo(() => (property?.media || []).filter((item) => item?.url), [property]);
   const currentMedia = gallery[activeIndex] || null;
+  const videoPoster = useMemo(
+    () => gallery.find((item) => String(item.media_type || '').toLowerCase() !== 'video')?.url || '',
+    [gallery]
+  );
 
   useEffect(() => {
     [-1, 1].forEach((offset) => {
@@ -189,7 +194,7 @@ export default function PropertyDetailPage() {
         <div className="detail-media-col">
           <div className="detail-media-card">
             <div className="detail-carousel">
-              <MediaStage media={currentMedia} title={property.society_name} />
+              <MediaStage media={currentMedia} title={property.society_name} poster={videoPoster} />
               {gallery.length > 1 && (
                 <>
                   <button className="media-nav prev detail" onClick={() => cycle(-1)} aria-label="Previous">‹</button>
