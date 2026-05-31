@@ -360,6 +360,67 @@ const PUBLIC_SELECT = `
 
 /* ── Page & detail fetchers ────────────────────────────────── */
 
+async function fetchFilteredPage(filters = {}, page = 1, pageSize = PUBLIC_PAGE_SIZE) {
+  const {
+    localities = [],
+    city = '',
+    propertyType = '',
+    furnishingStatus = '',
+    bhk = '',
+    sortBy = 'newest',
+    search = '',
+  } = filters;
+
+  const start = Math.max(0, (page - 1) * pageSize);
+  const end = start + pageSize;
+
+  let q = supabase.from('public_listings').select(PUBLIC_SELECT);
+
+  if (localities.length > 0) q = q.in('locality', localities);
+  if (city)             q = q.eq('city', city);
+  if (propertyType)     q = q.eq('property_type', propertyType);
+  if (furnishingStatus) q = q.eq('furnishing_status', furnishingStatus);
+  // BHK: prefix ilike covers "2 BHK", "2BHK", "2". "4+" is handled client-side.
+  if (bhk && bhk !== '4+') q = q.ilike('bhk', `${bhk}%`);
+
+  if (search) {
+    const safe = search.replace(/%/g, '\\%').replace(/_/g, '\\_');
+    q = q.or(
+      `society_name.ilike.%${safe}%,locality.ilike.%${safe}%,sub_locality.ilike.%${safe}%,city.ilike.%${safe}%`
+    );
+  }
+
+  if (sortBy === 'rent-low')       q = q.order('monthly_rent', { ascending: true }).order('id', { ascending: true });
+  else if (sortBy === 'rent-high') q = q.order('monthly_rent', { ascending: false }).order('id', { ascending: false });
+  else                             q = q.order('updated_at', { ascending: false });
+
+  q = q.range(start, end);
+
+  const { data, error } = await q;
+  if (error) throw error;
+
+  const rows = data || [];
+  const hasMore = rows.length > pageSize;
+  const pageRows = hasMore ? rows.slice(0, pageSize) : rows;
+  const flatIds = pageRows.map((r) => r.id);
+
+  const coverImageUrlMap = new Map(
+    pageRows.filter((r) => looksLikeHttpUrl(r.cover_image_url)).map((r) => [r.id, r.cover_image_url])
+  );
+
+  const [coverMediaMap, shareCodeMap] = await Promise.all([
+    fetchCoverMediaMap(flatIds, coverImageUrlMap),
+    fetchShareCodeMap(flatIds),
+  ]);
+
+  return {
+    items: pageRows.map((r) => normalizeProperty(r, coverMediaMap, shareCodeMap)),
+    hasMore,
+    page,
+    pageSize,
+  };
+}
+
 async function fetchSupabasePropertiesPage(page = 1, pageSize = PUBLIC_PAGE_SIZE) {
   const start = Math.max(0, (page - 1) * pageSize);
   const end = start + pageSize;
@@ -438,6 +499,11 @@ async function fetchSupabasePropertyByRef(propertyRef) {
 }
 
 /* ── Exports ───────────────────────────────────────────────── */
+
+export async function fetchPropertiesWithFilters(filters = {}, page = 1, pageSize = PUBLIC_PAGE_SIZE) {
+  if (!hasSupabase) throw new Error('Supabase is not configured.');
+  return fetchFilteredPage(filters, page, pageSize);
+}
 
 export async function getPreviewPropertiesPage(page = 1, pageSize = PUBLIC_PAGE_SIZE) {
   if (!hasSupabase) throw new Error('Supabase is not configured.');

@@ -3,7 +3,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import PropertyCard from '../components/PropertyCard.jsx';
 import { usePublicProperties } from '../services/publicPropertiesContext.jsx';
 import {
-  fetchPropertiesForLocalitiesPage,
+  fetchPropertiesWithFilters,
   getRentBoundsForLocalities,
   PUBLIC_PAGE_SIZE,
 } from '../services/publicPropertiesService.js';
@@ -37,10 +37,6 @@ function persistState(filters, search, budgetRange) {
   } catch {}
 }
 
-function normalizeValue(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
 function getNumericRent(value) {
   const rent = Number(value || 0);
   return Number.isFinite(rent) ? rent : 0;
@@ -49,14 +45,6 @@ function getNumericRent(value) {
 function extractBhkNumber(value) {
   const match = String(value || '').match(/\d+(?:\.\d+)?/);
   return match ? Number(match[0]) : null;
-}
-
-function matchesBhkOption(itemBhk, selectedBhk) {
-  if (!selectedBhk) return true;
-  const numericBhk = extractBhkNumber(itemBhk);
-  if (numericBhk === null) return false;
-  if (selectedBhk === '4+') return numericBhk >= 4;
-  return numericBhk === Number(selectedBhk);
 }
 
 function formatCurrency(value) {
@@ -100,38 +88,51 @@ export default function PropertiesPage() {
   useEffect(() => { persistState(filters, search, budgetRange); }, [filters, search, budgetRange]);
 
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [displayCount, setDisplayCount] = useState(PUBLIC_PAGE_SIZE);
 
-  // Reset display count whenever filters or search change
-  useEffect(() => { setDisplayCount(PUBLIC_PAGE_SIZE); }, [filters, search]);
+  // ── Server-side filters: all except budget (changes on drag) ──
+  const serverFilters = useMemo(() => ({
+    localities: filters.localities,
+    city: filters.city,
+    bhk: filters.bhk,
+    propertyType: filters.propertyType,
+    furnishingStatus: filters.furnishingStatus,
+    sortBy: filters.sortBy,
+    search,
+  }), [filters.localities, filters.city, filters.bhk, filters.propertyType, filters.furnishingStatus, filters.sortBy, search]);
 
-  // ── Locality filter — paginated via useInfiniteQuery ───────
+  const hasServerFilter = Boolean(
+    serverFilters.localities.length ||
+    serverFilters.city ||
+    serverFilters.bhk ||
+    serverFilters.propertyType ||
+    serverFilters.furnishingStatus ||
+    serverFilters.sortBy !== 'newest' ||
+    serverFilters.search
+  );
+
   const {
-    data: localityData,
-    fetchNextPage: fetchMoreLocalities,
-    hasNextPage: hasMoreLocalities,
-    isLoading: localityLoading,
-    isFetchingNextPage: localityFetchingMore,
+    data: filteredData,
+    fetchNextPage: fetchMoreFiltered,
+    hasNextPage: hasMoreFiltered,
+    isLoading: filteredLoading,
+    isFetchingNextPage: filteredFetchingMore,
+    isError: filteredIsError,
+    error: filteredErrorMsg,
   } = useInfiniteQuery({
-    queryKey: ['properties-localities', filters.localities],
-    queryFn: ({ pageParam }) => fetchPropertiesForLocalitiesPage(filters.localities, pageParam, PUBLIC_PAGE_SIZE),
+    queryKey: ['filtered-properties', serverFilters],
+    queryFn: ({ pageParam }) => fetchPropertiesWithFilters(serverFilters, pageParam, PUBLIC_PAGE_SIZE),
     initialPageParam: 1,
     getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.page + 1 : undefined,
-    enabled: filters.localities.length > 0,
+    enabled: hasServerFilter,
     staleTime: 5 * 60 * 1000,
   });
 
-  const localityItems = useMemo(
-    () => localityData?.pages.flatMap((p) => p.items) ?? [],
-    [localityData]
+  const filteredItems = useMemo(
+    () => filteredData?.pages.flatMap((p) => p.items) ?? [],
+    [filteredData]
   );
 
-  // ── Non-locality filters: reuse already-loaded paginated data ─
-  const hasNonLocalityFilter = Boolean(
-    search || filters.city || filters.bhk || filters.propertyType || filters.furnishingStatus
-  );
-
-  const baseItems = filters.localities.length > 0 ? localityItems : paginatedItems;
+  const baseItems = hasServerFilter ? filteredItems : paginatedItems;
 
   // ── Budget bounds ──────────────────────────────────────────
   const { data: localityRentBounds = { min: 0, max: 0 } } = useQuery({
@@ -171,64 +172,32 @@ export default function PropertiesPage() {
     setBudgetRange({ min: activeBudgetBounds.min, max: activeBudgetBounds.max });
   }, [activeBudgetBounds.min, activeBudgetBounds.max]);
 
-  // ── Filtered + sorted results ──────────────────────────────
+  // ── Client-side correction: BHK 4+ and budget range ───────
+  // All other filters are applied server-side.
   const filtered = useMemo(() => {
-    const base = baseItems.filter((item) => {
-      const haystack = [
-        item.society_name, item.locality, item.sub_locality,
-        item.city, item.bhk, item.property_type, item.furnishing_status,
-      ].filter(Boolean).join(' ').toLowerCase();
-
-      const searchMatch = !search || haystack.includes(search.toLowerCase());
-      const cityMatch = !filters.city || normalizeValue(item.city) === normalizeValue(filters.city);
-      const localityMatch =
-        !filters.localities.length ||
-        filters.localities.some((loc) => normalizeValue(item.locality) === normalizeValue(loc));
-      const bhkMatch = matchesBhkOption(item.bhk, filters.bhk);
-      const propertyTypeMatch =
-        !filters.propertyType ||
-        normalizeValue(item.property_type) === normalizeValue(filters.propertyType);
-      const furnishingMatch =
-        !filters.furnishingStatus ||
-        normalizeValue(item.furnishing_status) === normalizeValue(filters.furnishingStatus);
+    return baseItems.filter((item) => {
+      // BHK "4+" can't be expressed as a server-side ilike on a string column
+      if (filters.bhk === '4+' && (extractBhkNumber(item.bhk) ?? 0) < 4) return false;
       const rent = getNumericRent(item.monthly_rent);
-      const budgetMatch =
-        !activeBudgetBounds.max || (rent >= budgetRange.min && rent <= budgetRange.max);
-
-      return searchMatch && cityMatch && localityMatch && bhkMatch && propertyTypeMatch && furnishingMatch && budgetMatch;
+      if (activeBudgetBounds.max && (rent < budgetRange.min || rent > budgetRange.max)) return false;
+      return true;
     });
+  }, [baseItems, filters.bhk, budgetRange, activeBudgetBounds.max]);
 
-    const sorted = [...base];
-    if (filters.sortBy === 'rent-low') sorted.sort((a, b) => getNumericRent(a.monthly_rent) - getNumericRent(b.monthly_rent));
-    else if (filters.sortBy === 'rent-high') sorted.sort((a, b) => getNumericRent(b.monthly_rent) - getNumericRent(a.monthly_rent));
-    return sorted;
-  }, [baseItems, filters, search, budgetRange, activeBudgetBounds.max]);
+  const displayedItems = filtered;
 
-  // Locality filter: DB-paginated — show all loaded, load more fetches next DB page
-  // Non-locality filter: client-side slice of paginatedItems (already loaded), then fetch more DB pages
-  // No filter: show all paginatedItems pages, load more fetches next DB page
-  const displayedItems = useMemo(() => {
-    if (filters.localities.length > 0) return filtered;
-    if (hasNonLocalityFilter) return filtered.slice(0, displayCount);
-    return filtered;
-  }, [filtered, displayCount, filters.localities.length, hasNonLocalityFilter]);
-
-  const hasMoreDisplayItems = hasNonLocalityFilter && displayCount < filtered.length;
-  const hasMoreDbPages = filters.localities.length > 0 ? hasMoreLocalities : hasMore;
-  const canLoadMore = !loading && !loadingMore && !localityFetchingMore && !error &&
-    (hasMoreDbPages || hasMoreDisplayItems);
+  const activeHasMore = hasServerFilter ? Boolean(hasMoreFiltered) : hasMore;
+  const activeError = hasServerFilter
+    ? (filteredIsError ? (filteredErrorMsg?.message || 'Failed to load properties') : '')
+    : error;
+  const canLoadMore = !isLoading && !isLoadingMore && !activeError && activeHasMore;
 
   function handleLoadMore() {
-    if (filters.localities.length > 0) {
-      fetchMoreLocalities();
-    } else if (hasMoreDisplayItems) {
-      setDisplayCount((c) => c + PUBLIC_PAGE_SIZE);
-    } else {
-      loadMore();
-    }
+    if (hasServerFilter) fetchMoreFiltered();
+    else loadMore();
   }
 
-  const isLoadingMore = filters.localities.length > 0 ? localityFetchingMore : loadingMore;
+  const isLoadingMore = hasServerFilter ? filteredFetchingMore : loadingMore;
 
   const budgetChanged =
     activeBudgetBounds.max &&
@@ -307,7 +276,7 @@ export default function PropertiesPage() {
   }
 
   const showBudgetSlider = Boolean(activeBudgetBounds.max);
-  const isLoading = loading || (filters.localities.length > 0 && localityLoading);
+  const isLoading = hasServerFilter ? filteredLoading : loading;
 
   return (
     <div className="page-shell">
@@ -337,9 +306,7 @@ export default function PropertiesPage() {
 
             <div className="toolbar-actions">
               <div className="results-chip">
-                {hasNonLocalityFilter && displayedItems.length < filtered.length
-                  ? `${displayedItems.length} of ${filtered.length}`
-                  : `${filtered.length} shown`}
+                {filtered.length} shown{activeHasMore ? '+' : ''}
               </div>
               <button
                 className={`filter-toggle-btn${filtersOpen ? ' active' : ''}${activeFilterCount ? ' has-active' : ''}`}
@@ -450,14 +417,14 @@ export default function PropertiesPage() {
       <section className="container properties-grid-wrap">
         {isLoading ? <div className="empty-state">Loading properties…</div> : null}
 
-        {error ? (
+        {activeError ? (
           <div className="empty-state">
-            <p>{error}</p>
+            <p>{activeError}</p>
             <button className="button ghost" onClick={refreshProperties}>Retry</button>
           </div>
         ) : null}
 
-        {!isLoading && !error && filtered.length === 0 ? (
+        {!isLoading && !activeError && filtered.length === 0 ? (
           <div className="empty-state">No properties found for these filters.</div>
         ) : null}
 
