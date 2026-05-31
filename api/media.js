@@ -14,6 +14,10 @@ function getClient() {
   return _client;
 }
 
+function log(fields) {
+  console.log(JSON.stringify(fields));
+}
+
 export default async function handler(req, res) {
   const rawPath = req.query.path;
   if (!rawPath || typeof rawPath !== 'string') {
@@ -32,11 +36,15 @@ export default async function handler(req, res) {
       .createSignedUrl(storagePath, 60 * 60 * 24 * 7);
 
     if (signError || !urlData?.signedUrl) {
+      log({ event: 'media_miss', path: storagePath, status: 404 });
       return res.status(404).end('Not found');
     }
 
     const upstream = await fetch(urlData.signedUrl);
-    if (!upstream.ok) return res.status(upstream.status).end();
+    if (!upstream.ok) {
+      log({ event: 'media_upstream_error', path: storagePath, status: upstream.status });
+      return res.status(upstream.status).end();
+    }
 
     const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
     const body = Buffer.from(await upstream.arrayBuffer());
@@ -54,6 +62,7 @@ export default async function handler(req, res) {
           .webp({ quality })
           .toBuffer();
 
+        log({ event: 'media_serve', path: storagePath, type: 'image/webp', bytes: resized.length, w: width, resized: true });
         res.setHeader('Content-Type', 'image/webp');
         res.setHeader('Cache-Control', CACHE);
         res.setHeader('Vary', 'Accept-Encoding');
@@ -63,11 +72,13 @@ export default async function handler(req, res) {
       }
     }
 
+    log({ event: 'media_serve', path: storagePath, type: contentType, bytes: body.length, w: width, resized: false });
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', CACHE);
     res.setHeader('Vary', 'Accept-Encoding');
     return res.status(200).send(body);
   } catch {
+    log({ event: 'media_error', path: storagePath, status: 500 });
     return res.status(500).end('Internal error');
   }
 }
