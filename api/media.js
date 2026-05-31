@@ -21,8 +21,8 @@ export default async function handler(req, res) {
   }
 
   const storagePath = rawPath.replace(/^\/+/, '');
-  const width = req.query.w ? Math.min(parseInt(req.query.w, 10), 1920) : null;
-  const quality = req.query.q ? Math.min(Math.max(parseInt(req.query.q, 10), 10), 100) : 80;
+  const width = req.query.w ? Math.min(parseInt(req.query.w, 10), 1280) : null;
+  const quality = req.query.q ? Math.min(Math.max(parseInt(req.query.q, 10), 10), 100) : 75;
 
   try {
     const supabase = getClient();
@@ -45,7 +45,7 @@ export default async function handler(req, res) {
       !contentType.includes('svg') &&
       !contentType.includes('gif');
 
-    const CACHE = 'public, s-maxage=86400, max-age=3600, stale-while-revalidate=604800';
+    const CACHE = 'public, s-maxage=604800, max-age=86400, stale-while-revalidate=2592000';
 
     if (width && isResizableImage) {
       try {

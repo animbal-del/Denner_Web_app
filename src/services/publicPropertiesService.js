@@ -117,7 +117,7 @@ async function createSignedMediaUrlMap(rows = []) {
     try {
       const { data, error } = await client.storage
         .from(MEDIA_BUCKET)
-        .createSignedUrls(chunk, 60 * 60); // 1-hour tokens
+        .createSignedUrls(chunk, 60 * 60 * 24 * 7); // 7-day tokens
 
       if (!error && Array.isArray(data)) {
         data.forEach((entry, idx) => {
@@ -151,21 +151,18 @@ function buildMediaCandidates(mediaRow, signedUrlMap = new Map(), extraFallbacks
 
   if (normalized) {
     if (isVideo) {
-      // Videos are too large to proxy — use signed URL directly
+      // Videos: public URL first — same URL for all users so Supabase CDN can cache it.
+      // Signed URL as fallback only (unique token per session = CDN bypass = high egress).
+      candidates.push(getPublicMediaUrl(normalized));
       if (signedUrlMap.has(normalized)) candidates.push(signedUrlMap.get(normalized));
     } else {
-      // Images: proxy through /api/media so Vercel CDN caches the response
-      // Falls back to signed URL in dev (proxy returns 404 from Vite server)
+      // Images: Vercel proxy — CDN-cached at edge, resized on-the-fly.
       candidates.push(`/api/media?path=${encodeURIComponent(normalized)}`);
-      if (signedUrlMap.has(normalized)) candidates.push(signedUrlMap.get(normalized));
     }
   }
 
-  // Stored public_url (direct CDN or public storage URL from DB)
+  // Stored public_url from DB as fallback
   if (looksLikeHttpUrl(mediaRow?.public_url)) candidates.push(mediaRow.public_url);
-
-  // Supabase public storage URL (works if bucket is public)
-  if (normalized) candidates.push(getPublicMediaUrl(normalized));
 
   // Extra fallbacks
   for (const url of extraFallbacks) {
@@ -283,8 +280,9 @@ async function fetchAllMediaForFlat(flatId) {
   if (error) throw error;
 
   const rows = data || [];
+  // Only generate signed URLs for videos (as CDN fallback) — images go through /api/media proxy
   const videoRows = rows.filter((r) => String(r.media_type || '').toLowerCase() === 'video');
-  const signedUrlMap = await createSignedMediaUrlMap(videoRows);
+  const signedUrlMap = videoRows.length ? await createSignedMediaUrlMap(videoRows) : new Map();
 
   return sortMedia(
     rows

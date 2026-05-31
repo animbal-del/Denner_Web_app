@@ -12,8 +12,12 @@ import { dirname, join } from 'path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 
-const TOKEN = process.env.SUPABASE_ACCESS_TOKEN || 'sbp_b4340efe30e7f58ae453086d56a71a7062cc58d9';
-const REF   = process.env.PROJECT_REF            || 'hmfjpgytbwpllekwhkpi';
+const TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
+const REF   = process.env.PROJECT_REF;
+if (!TOKEN || !REF) {
+  console.error('ERROR: Set SUPABASE_ACCESS_TOKEN and PROJECT_REF env vars before running.');
+  process.exit(1);
+}
 const BASE  = `https://api.supabase.com/v1/projects/${REF}/database/query`;
 
 async function sql(query) {

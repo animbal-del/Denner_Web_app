@@ -1,69 +1,96 @@
 /**
- * Compresses all images in the Supabase storage bucket in-place.
- * Downloads each file, resizes/compresses with Sharp, uploads back.
+ * Compresses all images in property-media/flats/ in-place.
+ * Uses authenticated REST API (bypasses public CDN restriction).
+ *
+ * Structure: flats/{DNR}/{subfolder}/{file}
  *
  * Usage: node scripts/compress-storage.mjs
- *
- * Targets:
- *   JPEG/JPG → quality 80, max 1920px wide
- *   PNG      → quality 80 PNG, max 1920px wide
  */
 
-import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
-import { readFileSync } from 'fs';
 
-const SUPABASE_URL = 'https://hmfjpgytbwpllekwhkpi.supabase.co';
-const SERVICE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhtZmpwZ3l0YndwbGxla3doa3BpIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDkxODcxOCwiZXhwIjoyMDkwNDk0NzE4fQ.X7oiGjuK8rGSO6cKtTjCZLyihBlPi2zRsk8yzlgeNaE';
-const BUCKET       = 'property-photos';
-const MAX_WIDTH    = 1920;
-const JPEG_QUALITY = 80;
-const PNG_QUALITY  = 80;
-const CONCURRENT   = 3;
+const BASE_URL    = process.env.SUPABASE_URL;
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!BASE_URL || !SERVICE_KEY) {
+  console.error('ERROR: Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY env vars before running.');
+  process.exit(1);
+}
+const BUCKET      = 'property-media';
+const MAX_WIDTH   = 1280;
+const JPEG_Q      = 70;
+const PNG_Q       = 70;
+const WEBP_Q      = 70;
+const CONCURRENT  = 4;
 
-const client = createClient(SUPABASE_URL, SERVICE_KEY);
+const AUTH = { Authorization: `Bearer ${SERVICE_KEY}` };
+
+async function listFolder(prefix, limit = 1000) {
+  const res = await fetch(`${BASE_URL}/storage/v1/object/list/${BUCKET}`, {
+    method: 'POST',
+    headers: { ...AUTH, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prefix, limit }),
+  });
+  if (!res.ok) throw new Error(`List failed for "${prefix}": ${res.status}`);
+  return res.json();
+}
+
+async function getAllFiles(prefix = 'flats') {
+  const entries = await listFolder(prefix);
+  const files = [];
+  for (const entry of entries) {
+    const fullPath = `${prefix}/${entry.name}`;
+    if (entry.id === null) {
+      // folder — recurse
+      files.push(...await getAllFiles(fullPath));
+    } else {
+      files.push({ path: fullPath, size: entry.metadata?.size, mime: entry.metadata?.mimetype });
+    }
+  }
+  return files;
+}
 
 async function downloadFile(storagePath) {
-  const url = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${storagePath}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const res = await fetch(`${BASE_URL}/storage/v1/object/${BUCKET}/${storagePath}`, { headers: AUTH });
+  if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
   return Buffer.from(await res.arrayBuffer());
 }
 
-async function compressImage(buffer, ext) {
-  const img = sharp(buffer).resize({ width: MAX_WIDTH, withoutEnlargement: true });
-  if (ext === 'png') {
-    return { buffer: await img.png({ quality: PNG_QUALITY, compressionLevel: 9 }).toBuffer(), mime: 'image/png' };
-  }
-  return { buffer: await img.jpeg({ quality: JPEG_QUALITY, mozjpeg: true }).toBuffer(), mime: 'image/jpeg' };
-}
-
 async function uploadFile(storagePath, buffer, mime) {
-  const { error } = await client.storage.from(BUCKET).upload(storagePath, buffer, {
-    contentType: mime,
-    upsert: true,
+  const res = await fetch(`${BASE_URL}/storage/v1/object/${BUCKET}/${storagePath}`, {
+    method: 'PUT',
+    headers: { ...AUTH, 'Content-Type': mime, 'x-upsert': 'true' },
+    body: buffer,
   });
-  if (error) throw new Error(`Upload failed: ${error.message}`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Upload failed: HTTP ${res.status} — ${text}`);
+  }
 }
 
-function getExt(name) {
-  return name.split('.').pop().toLowerCase();
+async function compressImage(buffer) {
+  const img = sharp(buffer).resize({ width: MAX_WIDTH, withoutEnlargement: true });
+  return { buffer: await img.webp({ quality: WEBP_Q }).toBuffer(), mime: 'image/webp' };
 }
 
-async function processFile(storagePath) {
-  const ext = getExt(storagePath);
-  if (!['jpg', 'jpeg', 'png'].includes(ext)) {
-    return { skipped: true };
+async function processFile(file) {
+  const { path, mime } = file;
+  if (!mime || !mime.startsWith('image/')) {
+    return { skipped: true, reason: 'not an image' };
+  }
+  // Skip files already converted to webp in a previous run
+  if (mime === 'image/webp') {
+    return { skipped: true, reason: 'already webp' };
   }
 
-  const original = await downloadFile(storagePath);
-  const { buffer: compressed, mime } = await compressImage(original, ext === 'jpg' ? 'jpeg' : ext);
+  const original = await downloadFile(path);
+  const { buffer: compressed, mime: outMime } = await compressImage(original);
 
-  const saving = original.length - compressed.length;
-  if (saving <= 0) return { skipped: true, reason: 'already optimal' };
+  if (compressed.length >= original.length) {
+    return { skipped: true, reason: 'already optimal' };
+  }
 
-  await uploadFile(storagePath, compressed, mime);
-  return { originalBytes: original.length, compressedBytes: compressed.length, saving };
+  await uploadFile(path, compressed, outMime);
+  return { originalBytes: original.length, compressedBytes: compressed.length };
 }
 
 async function runWithConcurrency(tasks, limit) {
@@ -79,16 +106,20 @@ async function runWithConcurrency(tasks, limit) {
 }
 
 async function main() {
-  const files = JSON.parse(readFileSync('scripts/storage-paths.json', 'utf8'));
-  console.log(`\nCompressing ${files.length} files in bucket "${BUCKET}"...\n`);
+  console.log('\nScanning property-media/flats/ ...');
+  const files = await getAllFiles('flats');
+  const images = files.filter(f => f.mime && f.mime.startsWith('image/'));
+  const others = files.filter(f => !f.mime || !f.mime.startsWith('image/'));
+
+  console.log(`Found ${files.length} files total — ${images.length} images, ${others.length} skipped (video/other)\n`);
 
   let done = 0, skipped = 0, failed = 0;
   let totalOriginal = 0, totalCompressed = 0;
   const failures = [];
 
-  const tasks = files.map(path => async () => {
+  const tasks = images.map(file => async () => {
     try {
-      const result = await processFile(path);
+      const result = await processFile(file);
       if (result.skipped) {
         skipped++;
       } else {
@@ -98,26 +129,24 @@ async function main() {
       }
     } catch (err) {
       failed++;
-      failures.push({ path, error: err.message });
+      failures.push({ path: file.path, error: err.message });
     }
     process.stdout.write(`\r  ${done} compressed  ${skipped} skipped  ${failed} failed`);
   });
 
   await runWithConcurrency(tasks, CONCURRENT);
 
-  const savedMB = ((totalOriginal - totalCompressed) / 1024 / 1024).toFixed(1);
-  const pct     = totalOriginal ? Math.round((1 - totalCompressed / totalOriginal) * 100) : 0;
+  const savedMB  = ((totalOriginal - totalCompressed) / 1024 / 1024).toFixed(1);
+  const savedPct = totalOriginal ? Math.round((1 - totalCompressed / totalOriginal) * 100) : 0;
 
   console.log(`\n\nDone.`);
-  console.log(`  Compressed : ${done} files`);
-  console.log(`  Skipped    : ${skipped} files (already optimal or non-image)`);
-  console.log(`  Failed     : ${failed} files`);
-  if (totalOriginal > 0) {
-    console.log(`  Space saved: ${savedMB} MB (${pct}% reduction)`);
-  }
+  console.log(`  Compressed : ${done} images`);
+  console.log(`  Skipped    : ${skipped} (already optimal)`);
+  console.log(`  Failed     : ${failed}`);
+  if (totalOriginal > 0) console.log(`  Space saved: ${savedMB} MB  (${savedPct}% reduction)`);
 
   if (failures.length) {
-    console.log('\nFailed files:');
+    console.log('\nFailed:');
     failures.forEach(({ path, error }) => console.log(`  ${path} — ${error}`));
   }
 }

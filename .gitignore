@@ -12,3 +12,9 @@ scripts/schema.sql
 scripts/storage-paths.json
 scripts/add-indexes.sql
 storage-backup/
+
+# Vite cache
+.vite/
+
+# Local deployment plan (may contain env-specific values)
+PLAN.md
