@@ -44,10 +44,17 @@ export default async function handler(req, res) {
     // property-media bucket is public — fetch directly, no signed URL needed.
     // If MEDIA_ORIGIN_BASE is set, fetch from there (R2 cutover via env only);
     // otherwise use the Supabase public storage URL.
-    const publicUrl = MEDIA_ORIGIN_BASE
+    const supabaseUrl = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${storagePath}`;
+    const primaryUrl = MEDIA_ORIGIN_BASE
       ? `${MEDIA_ORIGIN_BASE.replace(/\/$/, '')}/${storagePath}`
-      : `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${storagePath}`;
-    const upstream = await fetch(publicUrl);
+      : supabaseUrl;
+    let upstream = await fetch(primaryUrl);
+    // When serving from R2, fall back to Supabase for any object not yet in R2
+    // (e.g. uploaded just before the upload cutover) so no image can break.
+    if (!upstream.ok && MEDIA_ORIGIN_BASE && primaryUrl !== supabaseUrl) {
+      const fb = await fetch(supabaseUrl);
+      if (fb.ok) { upstream = fb; log({ event: 'media_fallback', path: storagePath }); }
+    }
     if (!upstream.ok) {
       log({ event: 'media_miss', path: storagePath, status: upstream.status });
       res.setHeader('Cache-Control', 'public, s-maxage=60');
