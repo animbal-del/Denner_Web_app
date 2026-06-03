@@ -14,46 +14,25 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;');
 }
 
-function stableImageUrl(url) {
-  if (!url || !url.startsWith('https://')) return null;
-  if (/\/object\/sign\//i.test(url)) return null; // signed = expires, reject
-  return url;
+// Extract a clean storage path from any cover URL/path (Supabase URL, R2 URL,
+// signed URL, or bare path) so the OG image can be served from R2 through the
+// /api/media proxy (R2-backed, on the mydenner.com domain).
+function normalizePath(value) {
+  let s = String(value || '').trim();
+  if (!s) return '';
+  s = s.replace(/^https?:\/\/[^/]+\/storage\/v1\/object\/(?:public|sign|authenticated)\/[^/]+\//i, '');
+  s = s.replace(/^https?:\/\/[^/]+\//i, '');
+  const q = s.indexOf('?');
+  if (q !== -1) s = s.slice(0, q);
+  return s.replace(/^public\/property-media\//i, '').replace(/^property-media\//i, '').replace(/^\/+/, '').trim();
 }
 
-function signedToPublic(url) {
-  const match = String(url || '').match(/\/object\/sign\/([^?]+)/);
-  if (!match) return null;
-  const base = (process.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
-  return `${base}/storage/v1/object/public/${match[1]}`;
-}
-
-function storagePathToPublic(path) {
-  if (!path) return null;
-  const base = (process.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
-  const bucket = process.env.VITE_SUPABASE_STORAGE_BUCKET || 'property-media';
-  return `${base}/storage/v1/object/public/${bucket}/${path.replace(/^\/+/, '')}`;
-}
-
-function pickStableImage(coverImageUrl, mediaRow) {
-  // Try cover_image_url from the flat record first
-  for (const url of [coverImageUrl]) {
-    const s = stableImageUrl(url);
-    if (s) return s;
-    const p = signedToPublic(url);
-    if (p) return p;
-  }
-
-  // Fall back to inventory_flat_media row fetched in parallel
-  if (mediaRow) {
-    const s = stableImageUrl(mediaRow.public_url);
-    if (s) return s;
-    const p = signedToPublic(mediaRow.public_url);
-    if (p) return p;
-    const c = storagePathToPublic(mediaRow.storage_path);
-    if (c) return c;
-  }
-
-  return null;
+function pickCoverPath(coverImageUrl, mediaRow) {
+  if (mediaRow?.storage_path) return normalizePath(mediaRow.storage_path);
+  const fromCover = normalizePath(coverImageUrl);
+  if (fromCover) return fromCover;
+  if (mediaRow?.public_url) return normalizePath(mediaRow.public_url);
+  return '';
 }
 
 export default async function handler(req, res) {
@@ -70,7 +49,7 @@ export default async function handler(req, res) {
   }
 
   let property = null;
-  let coverImageUrl = null;
+  let coverPath = null;
 
   try {
     // ── Step 1: resolve flat_id ─────────────────────────────
@@ -109,7 +88,7 @@ export default async function handler(req, res) {
       ]);
 
       property = flatRes.data;
-      coverImageUrl = pickStableImage(property?.cover_image_url, mediaRes.data);
+      coverPath = pickCoverPath(property?.cover_image_url, mediaRes.data);
     }
   } catch {
     // serve generic OG on any error
@@ -134,7 +113,9 @@ export default async function handler(req, res) {
       ].filter(Boolean).join(' · ').slice(0, 200)
     : 'Browse verified rental properties on Denner.';
 
-  const image = coverImageUrl || `${siteUrl}/og-default.png`;
+  const image = coverPath
+    ? `${siteUrl}/api/media?path=${encodeURIComponent(coverPath)}`
+    : `${siteUrl}/og-default.png`;
 
   const html = `<!doctype html>
 <html lang="en">

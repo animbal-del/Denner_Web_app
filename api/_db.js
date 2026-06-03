@@ -34,10 +34,21 @@ const LIST_SELECT = `
 function normalizeStoragePath(path = '') {
   let s = String(path || '').trim();
   if (!s) return '';
+  // strip a full Supabase storage URL prefix (domain + object path)
   s = s.replace(/^https?:\/\/[^/]+\/storage\/v1\/object\/(?:public|sign|authenticated)\/[^/]+\//i, '');
+  // strip any remaining bare domain (R2 r2.dev / custom media domain)
+  s = s.replace(/^https?:\/\/[^/]+\//i, '');
   const qIdx = s.indexOf('?');
   if (qIdx !== -1) s = s.slice(0, qIdx);
   return s.replace(/^public\/property-media\//i, '').replace(/^property-media\//i, '').replace(/^\/+/, '').trim();
+}
+
+// Route a cover image (URL or path, Supabase or R2) through the /api/media
+// proxy so it is served from R2 (with Supabase fallback) like all other images.
+function coverProxyUrl(coverImageUrl) {
+  const p = normalizeStoragePath(coverImageUrl);
+  if (p) return `/api/media?path=${encodeURIComponent(p)}`;
+  return looksLikeHttpUrl(coverImageUrl) ? coverImageUrl : null;
 }
 
 function looksLikeHttpUrl(value = '') {
@@ -99,8 +110,11 @@ function buildMediaUrls(mediaRow) {
 
 function normalizeProperty(row, mediaMap, shareCodeMap) {
   const media = mediaMap.get(row.id) || [];
-  const fallbackCover = row.cover_image_url && looksLikeHttpUrl(row.cover_image_url)
-    ? [{ id: `cover-${row.id}`, flat_id: row.id, media_type: 'image', url: row.cover_image_url, fallback_urls: [], storage_path: null, is_cover: true, sort_order: 0 }]
+  const coverPath = normalizeStoragePath(row.cover_image_url);
+  const coverProxy = coverProxyUrl(row.cover_image_url);
+  const rawCover = looksLikeHttpUrl(row.cover_image_url) ? row.cover_image_url : null;
+  const fallbackCover = coverProxy
+    ? [{ id: `cover-${row.id}`, flat_id: row.id, media_type: 'image', url: coverProxy, fallback_urls: rawCover ? [rawCover] : [], storage_path: coverPath || null, is_cover: true, sort_order: 0 }]
     : [];
 
   const shareCode = shareCodeMap.get(row.id) || row.share_code || null;
@@ -129,6 +143,7 @@ function normalizeProperty(row, mediaMap, shareCodeMap) {
     handler_whatsapp_number: row.handler_whatsapp_number || null,
     handler_name: row.handler_name || null,
     highlights: [row.furnishing_status, row.property_type].filter(Boolean).slice(0, 2),
+    cover_image_url: coverProxy,
     media: media.length ? media : fallbackCover,
   };
 }
