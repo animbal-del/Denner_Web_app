@@ -4,6 +4,7 @@ export const PUBLIC_PAGE_SIZE = 12;
 
 const BUCKET = process.env.VITE_SUPABASE_STORAGE_BUCKET || 'property-media';
 const SUPABASE_URL = (process.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
+const MEDIA_ORIGIN_BASE = (process.env.MEDIA_ORIGIN_BASE || '').replace(/\/$/, '');
 
 let _supabase = null;
 function db() {
@@ -69,7 +70,8 @@ function sortMedia(items = []) {
 
 // Build CDN-friendly URLs — no signed tokens needed on the server side.
 // Images go through the /api/media proxy (Vercel CDN, Sharp resize).
-// Videos use the Supabase public URL (Supabase CDN).
+// Videos are served directly from R2 (when MEDIA_ORIGIN_BASE is set) with a
+// Supabase fallback URL the client tries on error; else from Supabase.
 function buildMediaUrls(mediaRow) {
   const normalized = normalizeStoragePath(mediaRow.storage_path || mediaRow.public_url);
   const isVideo = String(mediaRow.media_type || '').toLowerCase() === 'video';
@@ -79,10 +81,13 @@ function buildMediaUrls(mediaRow) {
     return { url: fallback, fallback_urls: [] };
   }
 
+  const supaUrl = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${normalized}`;
+
   if (isVideo) {
+    const primary = MEDIA_ORIGIN_BASE ? `${MEDIA_ORIGIN_BASE}/${normalized}` : supaUrl;
     return {
-      url: `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${normalized}`,
-      fallback_urls: [],
+      url: primary,
+      fallback_urls: primary !== supaUrl ? [supaUrl] : [],
     };
   }
 
