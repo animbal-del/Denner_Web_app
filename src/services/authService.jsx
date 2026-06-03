@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase, hasSupabase } from '../lib/supabaseClient.js';
+import { queryClient } from '../lib/queryClient.js';
 
 const PROFILE_COLS = 'id, auth_user_id, role, full_name, phone, email, city, state, is_active';
 const PARTNER_COLS = 'id, profile_id, partner_type, company_name, locality, section, verification_status';
@@ -20,18 +21,21 @@ async function ensureSupabaseProfile(user, role, formData) {
   let profile = existingProfile;
 
   if (!profile) {
+    // The DB trigger (on_auth_user_created) may have already created this row
+    // with role from signup metadata, clamped to 'user' or 'partner' ('admin'
+    // is never self-assignable). Upsert on auth_user_id so we're tolerant of
+    // that race, and NEVER send trust columns (role / is_active) — those are
+    // owned by the trigger / admin path. The trigger / column DEFAULTs supply them.
     const { data: inserted, error } = await supabase
       .from('profiles')
-      .insert({
+      .upsert({
         auth_user_id: user.id,
-        role,
         full_name: formData.fullName,
         phone,
         email: formData.email,
         city: formData.city || null,
         state: formData.state || null,
-        is_active: true,
-      })
+      }, { onConflict: 'auth_user_id' })
       .select(PROFILE_COLS)
       .single();
 
@@ -41,14 +45,13 @@ async function ensureSupabaseProfile(user, role, formData) {
 
     profile = inserted;
   } else {
+    // Backfill only non-trust fields. Never touch role / is_active here.
     const patch = {};
-    if (profile.role !== role) patch.role = role;
     if (!profile.full_name && formData.fullName) patch.full_name = formData.fullName;
     if (!profile.phone && phone) patch.phone = phone;
     if (!profile.email && formData.email) patch.email = formData.email;
     if (!profile.city && formData.city) patch.city = formData.city;
     if (!profile.state && formData.state) patch.state = formData.state;
-    if (profile.is_active === false) patch.is_active = true;
 
     if (Object.keys(patch).length) {
       const { data: updated, error: updateError } = await supabase
@@ -72,13 +75,14 @@ async function ensureSupabaseProfile(user, role, formData) {
     if (partnerLookupError) throw partnerLookupError;
 
     if (!existingPartner) {
+      // Never send verification_status — it is a trust column owned by the
+      // admin/service-role path. The column DEFAULT ('pending_review') applies.
       const { error: partnerError } = await supabase.from('partner_profiles').insert({
         profile_id: profile.id,
         partner_type: formData.partnerType,
         company_name: formData.companyName || null,
         locality: formData.locality || null,
         section: formData.section || null,
-        verification_status: 'pending_review',
       });
 
       if (partnerError) {
@@ -92,7 +96,6 @@ async function ensureSupabaseProfile(user, role, formData) {
 
 async function recoverSupabaseProfile(user, expectedRole = null) {
   const meta = user.user_metadata || {};
-  const targetRole = expectedRole || meta.role || 'user';
 
   let { data: profile, error } = await supabase
     .from('profiles')
@@ -103,18 +106,20 @@ async function recoverSupabaseProfile(user, expectedRole = null) {
   if (error) throw error;
 
   if (!profile) {
+    // The DB trigger normally creates this row with role from signup metadata
+    // (clamped to 'user' or 'partner'). If it hasn't run yet, upsert a row
+    // WITHOUT any trust columns (role / is_active). Role is assigned server-side
+    // (trigger -> 'user'/'partner'; 'admin' only via an admin/service-role path).
     const { data: created, error: createError } = await supabase
       .from('profiles')
-      .insert({
+      .upsert({
         auth_user_id: user.id,
-        role: targetRole,
         full_name: meta.full_name || user.email?.split('@')[0] || 'Denner User',
         phone: meta.phone || null,
         email: user.email || null,
         city: meta.city || null,
         state: meta.state || null,
-        is_active: true,
-      })
+      }, { onConflict: 'auth_user_id' })
       .select(PROFILE_COLS)
       .single();
 
@@ -122,18 +127,15 @@ async function recoverSupabaseProfile(user, expectedRole = null) {
     profile = created;
   }
 
-  if (targetRole === 'partner' && profile.role !== 'partner') {
-    const { data: updated, error: updateError } = await supabase
-      .from('profiles')
-      .update({ role: 'partner', is_active: true })
-      .eq('id', profile.id)
-      .select(PROFILE_COLS)
-      .single();
-    if (updateError) throw updateError;
-    profile = updated;
-  }
+  // Role is READ for UX gating only — never self-healed/escalated here. A user
+  // becomes a partner via a server/admin path, which also sets role='partner'.
+  // We attach partner_profiles details whenever such a row exists (created at
+  // signup) OR when signup metadata marks this as a partner application, so the
+  // partner onboarding details survive even while role is still 'user' pending
+  // admin approval.
+  const isPartnerContext = profile.role === 'partner' || expectedRole === 'partner' || meta.role === 'partner';
 
-  if (targetRole === 'partner') {
+  if (isPartnerContext) {
     const { data: partnerProfile, error: partnerError } = await supabase
       .from('partner_profiles')
       .select(PARTNER_COLS)
@@ -143,13 +145,13 @@ async function recoverSupabaseProfile(user, expectedRole = null) {
     if (partnerError) throw partnerError;
 
     if (!partnerProfile) {
+      // Never send verification_status (trust column) — the DEFAULT applies.
       await supabase.from('partner_profiles').insert({
         profile_id: profile.id,
         partner_type: meta.partner_type || 'owner',
         company_name: meta.company_name || null,
         locality: meta.locality || null,
         section: meta.section || null,
-        verification_status: 'pending_review',
       });
     }
 
@@ -187,7 +189,6 @@ export function AuthProvider({ children }) {
       return null;
     }
 
-    setLoading(false);
     try {
       const loadedProfile = await recoverSupabaseProfile(nextSession.user, expectedRole);
       if (syncCounter.current !== syncId) return null;
@@ -198,6 +199,10 @@ export function AuthProvider({ children }) {
       console.error('Profile sync failed', syncError);
       setProfile(null);
       return null;
+    } finally {
+      // Only flip loading off once the profile load has settled, so guarded
+      // routes don't flash before the profile (and its role) is known.
+      if (syncCounter.current === syncId) setLoading(false);
     }
   }, []);
 
@@ -225,7 +230,12 @@ export function AuthProvider({ children }) {
 
     if (!hasSupabase) return undefined;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (event === 'SIGNED_OUT') {
+        // Drop any user-scoped cached queries so the next account can't flash
+        // the previous user's data (queries are keyed by user id, gcTime 10min).
+        queryClient.clear();
+      }
       syncProfile(nextSession);
     });
 
@@ -318,9 +328,14 @@ export function AuthProvider({ children }) {
     setProfile(null);
     setLoading(false);
 
+    // Drop all cached queries so a second account on the same tab can't flash
+    // the previous user's data (queries are keyed by user id, gcTime 10min).
+    queryClient.clear();
+
     if (!hasSupabase) return;
 
     Promise.resolve().then(async () => {
+      // Primary clear: ask Supabase to sign out (revokes + clears its storage).
       try {
         const { error } = await supabase.auth.signOut();
         if (error) {
@@ -334,6 +349,7 @@ export function AuthProvider({ children }) {
         }
       }
 
+      // Fallback only: purge any leftover sb-* keys if signOut didn't.
       try {
         Object.keys(window.localStorage)
           .filter((key) => key.startsWith('sb-') || key.includes('supabase.auth'))

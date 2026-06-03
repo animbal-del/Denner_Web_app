@@ -5,6 +5,8 @@ import { fetchProperties, fetchPropertiesByIds, PUBLIC_PAGE_SIZE } from './_db.j
 const CACHE = 'public, s-maxage=300, stale-while-revalidate=3600';
 
 export default async function handler(req, res) {
+  if (req.method !== 'GET') return res.status(405).setHeader('Allow', 'GET').end();
+
   try {
     // Liked-properties path: ?ids=1,2,3
     if (req.query.ids) {

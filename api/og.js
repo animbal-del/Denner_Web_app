@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
-  process.env.VITE_SUPABASE_ANON_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
 function escapeHtml(str) {
@@ -61,6 +61,11 @@ export default async function handler(req, res) {
 
   if (!shareCode) {
     res.status(400).send('Missing shareCode');
+    return;
+  }
+
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(shareCode)) {
+    res.status(400).end('Invalid share code');
     return;
   }
 
@@ -150,7 +155,7 @@ export default async function handler(req, res) {
   <meta name="twitter:title" content="${escapeHtml(title)}" />
   <meta name="twitter:description" content="${escapeHtml(description)}" />
   <meta name="twitter:image" content="${escapeHtml(image)}" />
-  <script>window.location.replace(${JSON.stringify(propertyUrl)});</script>
+  <meta http-equiv="refresh" content="0; url=${escapeHtml(propertyUrl)}" />
 </head>
 <body>
   <p>Redirecting to <a href="${escapeHtml(propertyUrl)}">${escapeHtml(title)}</a>…</p>
@@ -158,7 +163,12 @@ export default async function handler(req, res) {
 </html>`;
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  // 24h CDN cache, serve stale for 7 days while revalidating in background
-  res.setHeader('Cache-Control', 's-maxage=86400, stale-while-revalidate=604800');
+  if (property) {
+    // 24h CDN cache, serve stale for 7 days while revalidating in background
+    res.setHeader('Cache-Control', 's-maxage=86400, stale-while-revalidate=604800');
+  } else {
+    // generic/fallback OG (e.g. transient DB error): short cache only
+    res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
+  }
   res.status(200).send(html);
 }

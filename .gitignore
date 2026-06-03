@@ -18,3 +18,4 @@ storage-backup/
 
 # Local deployment plan (may contain env-specific values)
 PLAN.md
+.env*

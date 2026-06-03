@@ -1,49 +1,64 @@
-import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
 
 const BUCKET = process.env.VITE_SUPABASE_STORAGE_BUCKET || 'property-media';
+const SUPABASE_URL = (process.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
+const MEDIA_ORIGIN_BASE = process.env.MEDIA_ORIGIN_BASE;
 
-let _client = null;
-function getClient() {
-  if (!_client) {
-    _client = createClient(
-      process.env.VITE_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_KEY
-    );
-  }
-  return _client;
-}
+// Allowlist of widths to maximize CDN cache hits.
+const WIDTH_STEPS = [320, 640, 960, 1280];
+
+sharp.concurrency(1);
 
 function log(fields) {
   console.log(JSON.stringify(fields));
 }
 
+function snapWidth(raw) {
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  for (const step of WIDTH_STEPS) {
+    if (parsed <= step) return step;
+  }
+  return WIDTH_STEPS[WIDTH_STEPS.length - 1];
+}
+
 export default async function handler(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).setHeader('Allow', 'GET').end();
+  }
+
   const rawPath = req.query.path;
   if (!rawPath || typeof rawPath !== 'string') {
     return res.status(400).end('Missing path');
   }
 
   const storagePath = rawPath.replace(/^\/+/, '');
-  const width = req.query.w ? Math.min(parseInt(req.query.w, 10), 1280) : null;
+  if (/(^|\/)\.\.(\/|$)/.test(storagePath) || /[\\\x00-\x1f]/.test(storagePath)) {
+    return res.status(400).end('Bad path');
+  }
+
+  const width = req.query.w ? snapWidth(req.query.w) : null;
   const quality = req.query.q ? Math.min(Math.max(parseInt(req.query.q, 10), 10), 100) : 75;
 
   try {
-    const supabase = getClient();
-
-    const { data: urlData, error: signError } = await supabase.storage
-      .from(BUCKET)
-      .createSignedUrl(storagePath, 60 * 60 * 24 * 7);
-
-    if (signError || !urlData?.signedUrl) {
-      log({ event: 'media_miss', path: storagePath, status: 404 });
-      return res.status(404).end('Not found');
+    // property-media bucket is public — fetch directly, no signed URL needed.
+    // If MEDIA_ORIGIN_BASE is set, fetch from there (R2 cutover via env only);
+    // otherwise use the Supabase public storage URL.
+    const publicUrl = MEDIA_ORIGIN_BASE
+      ? `${MEDIA_ORIGIN_BASE.replace(/\/$/, '')}/${storagePath}`
+      : `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${storagePath}`;
+    const upstream = await fetch(publicUrl);
+    if (!upstream.ok) {
+      log({ event: 'media_miss', path: storagePath, status: upstream.status });
+      res.setHeader('Cache-Control', 'public, s-maxage=60');
+      return res.status(upstream.status).end('Not found');
     }
 
-    const upstream = await fetch(urlData.signedUrl);
-    if (!upstream.ok) {
-      log({ event: 'media_upstream_error', path: storagePath, status: upstream.status });
-      return res.status(upstream.status).end();
+    const MAX_UPSTREAM_BYTES = 15 * 1024 * 1024;
+    const contentLength = parseInt(upstream.headers.get('content-length') || '', 10);
+    if (Number.isFinite(contentLength) && contentLength > MAX_UPSTREAM_BYTES) {
+      log({ event: 'media_too_large', path: storagePath, bytes: contentLength });
+      return res.status(413).end('Too large');
     }
 
     const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
@@ -57,7 +72,7 @@ export default async function handler(req, res) {
 
     if (width && isResizableImage) {
       try {
-        const resized = await sharp(body)
+        const resized = await sharp(body, { limitInputPixels: 24000000, failOn: 'truncated' })
           .resize(width, null, { withoutEnlargement: true })
           .webp({ quality })
           .toBuffer();

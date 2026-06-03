@@ -4,6 +4,8 @@ import { fetchPropertyByRef } from './_db.js';
 const CACHE = 'public, s-maxage=300, stale-while-revalidate=3600';
 
 export default async function handler(req, res) {
+  if (req.method !== 'GET') return res.status(405).setHeader('Allow', 'GET').end();
+
   const { shareCode } = req.query;
   if (!shareCode || typeof shareCode !== 'string') {
     return res.status(400).json({ error: 'Missing shareCode' });

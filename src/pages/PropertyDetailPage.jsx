@@ -8,9 +8,22 @@ import SavePropertyButton from '../components/SavePropertyButton.jsx';
 import RequestVisitModal from '../components/RequestVisitModal.jsx';
 import MediaAsset from '../components/MediaAsset.jsx';
 
+// Share/WhatsApp config — derive absolute URLs from the public site domain
+// (mydenner.com) when configured, falling back to the current origin. Matches
+// the pattern used in visitRequestsService.js.
+const SHARE_BASE = (import.meta.env.VITE_PUBLIC_SITE_URL || (typeof window !== 'undefined' ? window.location.origin : '') || '').replace(/\/$/, '');
+const DENNER_WHATSAPP = import.meta.env.VITE_DEFAULT_DENNER_WHATSAPP || '919156005618';
+
 function formatCurrency(amount) {
   if (!amount && amount !== 0) return '—';
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
+}
+
+// Mirror MediaAsset's withWidth helper so prefetched URLs match the rendered
+// stage exactly (avoids downloading two cache variants of the same image).
+function withWidth(url, width) {
+  if (!width || !url || !url.startsWith('/api/media')) return url;
+  return `${url}&w=${width}`;
 }
 
 function MediaStage({ media, title, poster }) {
@@ -108,7 +121,7 @@ export default function PropertyDetailPage() {
       const item = gallery[activeIndex + offset];
       if (!item?.url || String(item.media_type).toLowerCase() === 'video') return;
       const img = new Image();
-      img.src = item.url;
+      img.src = withWidth(item.url, 1200);
     });
   }, [activeIndex, gallery]);
 
@@ -118,7 +131,7 @@ export default function PropertyDetailPage() {
   };
 
   const ogShareUrl = property
-    ? `${window.location.origin}/og/${property.share_code || `flat-${property.id}`}`
+    ? `${SHARE_BASE || window.location.origin}/og/${property.share_code || `flat-${property.id}`}`
     : window.location.href;
 
   function buildShareText() {
@@ -149,7 +162,7 @@ export default function PropertyDetailPage() {
   }
 
   function buildWaTeamUrl() {
-    const number = (import.meta.env.VITE_DEFAULT_DENNER_WHATSAPP || '919156005618').replace(/[^\d]/g, '');
+    const number = DENNER_WHATSAPP.replace(/[^\d]/g, '');
     const ref = property.share_code || `flat-${property.id}`;
     const msg = [
       `Hi, I have a query about this property:`,
@@ -158,7 +171,7 @@ export default function PropertyDetailPage() {
       `${property.bhk} · ${property.locality}, ${property.city}`,
       `${property.property_type}${property.furnishing_status ? ` · ${property.furnishing_status}` : ''}`,
       ``,
-      `Link: ${window.location.origin}/og/${ref}`,
+      `Link: ${SHARE_BASE || window.location.origin}/og/${ref}`,
     ].join('\n');
     return `https://wa.me/${number}?text=${encodeURIComponent(msg)}`;
   }

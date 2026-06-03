@@ -1,3 +1,16 @@
+-- ============================================================================
+-- INDEXES + get_filter_options RPC
+--
+-- This migration MIRRORS the contents of scripts/add-indexes.sql so that the
+-- indexes and the get_filter_options() RPC are version-controlled in the
+-- supabase/migrations history (addresses the gitignored-schema drift problem:
+-- the live DB had these objects but they were never tracked as a migration).
+--
+-- Keep this file in sync with scripts/add-indexes.sql. All statements are
+-- idempotent (CREATE OR REPLACE / CREATE INDEX IF NOT EXISTS), so re-running is
+-- safe. REVIEW before applying — verify index/column names against your schema.
+-- ============================================================================
+
 -- Run this in the Supabase SQL Editor (dashboard → SQL Editor → New query).
 -- Safe to re-run: all statements use CREATE OR REPLACE / IF NOT EXISTS.
 --

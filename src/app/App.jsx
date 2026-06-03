@@ -10,6 +10,7 @@ import PropertyDetailPage from '../pages/PropertyDetailPage.jsx';
 import ProfilePage from '../pages/ProfilePage.jsx';
 import LikedPropertiesPage from '../pages/LikedPropertiesPage.jsx';
 import UrgentHelpPage from '../pages/UrgentHelpPage.jsx';
+import NotFound from '../pages/NotFound.jsx';
 import { useAuth } from '../services/authService.jsx';
 import { PublicPropertiesProvider } from '../services/publicPropertiesContext.jsx';
 
@@ -95,6 +96,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
   );

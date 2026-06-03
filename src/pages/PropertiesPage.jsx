@@ -10,6 +10,7 @@ import {
 import NativeSelect from '../components/NativeSelect.jsx';
 import LocalityMultiSelect from '../components/LocalityMultiSelect.jsx';
 import DualRangeSlider from '../components/DualRangeSlider.jsx';
+import useDebouncedValue from '../hooks/useDebouncedValue.js';
 
 const BHK_OPTIONS = ['1', '1.5', '2', '2.5', '3', '3.5', '4+'];
 
@@ -89,6 +90,11 @@ export default function PropertiesPage() {
 
   const [filtersOpen, setFiltersOpen] = useState(false);
 
+  // Debounce the search term that feeds the server query so we fire one request
+  // after the user stops typing, not one per keystroke. The visible input stays
+  // bound to `search` and remains fully responsive.
+  const debouncedSearch = useDebouncedValue(search, 300);
+
   // ── Server-side filters: all except budget (changes on drag) ──
   const serverFilters = useMemo(() => ({
     localities: filters.localities,
@@ -97,8 +103,8 @@ export default function PropertiesPage() {
     propertyType: filters.propertyType,
     furnishingStatus: filters.furnishingStatus,
     sortBy: filters.sortBy,
-    search,
-  }), [filters.localities, filters.city, filters.bhk, filters.propertyType, filters.furnishingStatus, filters.sortBy, search]);
+    search: debouncedSearch,
+  }), [filters.localities, filters.city, filters.bhk, filters.propertyType, filters.furnishingStatus, filters.sortBy, debouncedSearch]);
 
   const hasServerFilter = Boolean(
     serverFilters.localities.length ||
@@ -190,14 +196,12 @@ export default function PropertiesPage() {
   const activeError = hasServerFilter
     ? (filteredIsError ? (filteredErrorMsg?.message || 'Failed to load properties') : '')
     : error;
-  const canLoadMore = !isLoading && !isLoadingMore && !activeError && activeHasMore;
+  const isLoadingMore = hasServerFilter ? filteredFetchingMore : loadingMore;
 
   function handleLoadMore() {
     if (hasServerFilter) fetchMoreFiltered();
     else loadMore();
   }
-
-  const isLoadingMore = hasServerFilter ? filteredFetchingMore : loadingMore;
 
   const budgetChanged =
     activeBudgetBounds.max &&
@@ -277,6 +281,7 @@ export default function PropertiesPage() {
 
   const showBudgetSlider = Boolean(activeBudgetBounds.max);
   const isLoading = hasServerFilter ? filteredLoading : loading;
+  const canLoadMore = !isLoading && !isLoadingMore && !activeError && activeHasMore;
 
   return (
     <div className="page-shell">

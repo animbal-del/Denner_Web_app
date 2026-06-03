@@ -1,4 +1,3 @@
-import { hasSupabase, supabase } from '../lib/supabaseClient.js';
 
 export const PUBLIC_PAGE_SIZE = 12;
 
@@ -58,29 +57,8 @@ export function getCoverImage(property) {
   return property?.media?.[0]?.url || '';
 }
 
-// ── Direct Supabase (dynamic / user-specific queries) ────────
-// These don't benefit from CDN caching: rent bounds change per locality
-// selection and are already cached in TanStack Query for 5 minutes.
-
 export async function getRentBoundsForLocalities(localities = []) {
-  if (!hasSupabase) throw new Error('Supabase is not configured.');
-  const selected = [...new Set((localities || []).map((l) => String(l || '').trim()).filter(Boolean))].slice(0, 3);
-
-  function base() {
-    let q = supabase.from('public_listings').select('monthly_rent').not('monthly_rent', 'is', null);
-    if (selected.length) q = q.in('locality', selected);
-    return q;
-  }
-
-  const [{ data: minData, error: minErr }, { data: maxData, error: maxErr }] = await Promise.all([
-    base().order('monthly_rent', { ascending: true }).limit(1),
-    base().order('monthly_rent', { ascending: false }).limit(1),
-  ]);
-
-  if (minErr) throw minErr;
-  if (maxErr) throw maxErr;
-
-  const min = Number(minData?.[0]?.monthly_rent || 0);
-  const max = Number(maxData?.[0]?.monthly_rent || 0);
-  return (!min || !max) ? { min: 0, max: 0 } : { min, max };
+  const selected = [...new Set((localities || []).map((l) => String(l || '').trim()).filter(Boolean))].slice(0, 5);
+  const params = selected.length ? `?localities=${selected.join(',')}` : '';
+  return apiFetch(`/api/rent-bounds${params}`);
 }

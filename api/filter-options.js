@@ -4,6 +4,8 @@ import { fetchFilterOptions } from './_db.js';
 const CACHE = 'public, s-maxage=3600, stale-while-revalidate=86400';
 
 export default async function handler(req, res) {
+  if (req.method !== 'GET') return res.status(405).setHeader('Allow', 'GET').end();
+
   try {
     const data = await fetchFilterOptions();
     res.setHeader('Content-Type', 'application/json');
