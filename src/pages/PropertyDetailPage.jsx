@@ -131,7 +131,7 @@ export default function PropertyDetailPage() {
   };
 
   const ogShareUrl = property
-    ? `${SHARE_BASE || window.location.origin}/og/${property.share_code || `flat-${property.id}`}`
+    ? `${SHARE_BASE}/og/${property.share_code || `flat-${property.id}`}`
     : window.location.href;
 
   function buildShareText() {
@@ -171,7 +171,7 @@ export default function PropertyDetailPage() {
       `${property.bhk} · ${property.locality}, ${property.city}`,
       `${property.property_type}${property.furnishing_status ? ` · ${property.furnishing_status}` : ''}`,
       ``,
-      `Link: ${SHARE_BASE || window.location.origin}/og/${ref}`,
+      `Link: ${SHARE_BASE}/og/${ref}`,
     ].join('\n');
     return `https://wa.me/${number}?text=${encodeURIComponent(msg)}`;
   }
