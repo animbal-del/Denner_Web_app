@@ -6,6 +6,8 @@ import { AuthProvider } from './services/authService.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { queryClient } from './lib/queryClient.js';
 import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
+import Clarity from './components/Clarity.jsx';
 import './styles/global.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -15,6 +17,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <AuthProvider>
           <App />
           <Analytics />
+          <SpeedInsights />
+          <Clarity />
         </AuthProvider>
       </QueryClientProvider>
     </BrowserRouter>
