@@ -38,6 +38,26 @@ function persistState(filters, search, budgetRange) {
   } catch {}
 }
 
+// Read filter seeds from the URL query string (e.g. SEO landing pages link to
+// /properties?locality=Kharadi). URL params take precedence over persisted state.
+function getUrlFilters() {
+  try {
+    const p = new URLSearchParams(window.location.search);
+    const out = {};
+    const loc = p.get('locality');
+    const bhk = p.get('bhk');
+    const city = p.get('city');
+    if (loc) out.localities = [loc];
+    if (bhk) out.bhk = bhk;
+    if (city) out.city = city;
+    return out;
+  } catch { return {}; }
+}
+
+function getUrlSearch() {
+  try { return new URLSearchParams(window.location.search).get('search') || ''; } catch { return ''; }
+}
+
 function getNumericRent(value) {
   const rent = Number(value || 0);
   return Number.isFinite(rent) ? rent : 0;
@@ -74,11 +94,10 @@ export default function PropertiesPage() {
   // ── Restore filter state from session ──────────────────────
   const [filters, setFilters] = useState(() => {
     const saved = loadPersistedState();
-    return saved?.filters || INITIAL_FILTERS;
+    return { ...(saved?.filters || INITIAL_FILTERS), ...getUrlFilters() };
   });
   const [search, setSearch] = useState(() => {
-    const saved = loadPersistedState();
-    return saved?.search || '';
+    return getUrlSearch() || loadPersistedState()?.search || '';
   });
 
   const [budgetRange, setBudgetRange] = useState(() => {

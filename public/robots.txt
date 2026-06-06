@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /account
+Disallow: /profile
+Disallow: /liked
+Disallow: /partner-area
+Disallow: /login
+Disallow: /signup
+
+Sitemap: https://mydenner.com/api/sitemap

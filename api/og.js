@@ -117,6 +117,56 @@ export default async function handler(req, res) {
     ? `${siteUrl}/api/media?path=${encodeURIComponent(coverPath)}`
     : `${siteUrl}/og-default.png`;
 
+  // Structured data (JSON-LD). For a resolved property emit a RealEstateListing
+  // with offer/address; otherwise a generic Organization block. JSON-LD is data,
+  // not executable script, so it is allowed under the site's strict CSP.
+  let jsonLd;
+  if (property) {
+    const listingName = [property.society_name, property.bhk, property.locality]
+      .filter(Boolean).join(' · ');
+    const listing = {
+      '@context': 'https://schema.org',
+      '@type': 'RealEstateListing',
+      name: listingName,
+      description,
+      image,
+      url: propertyUrl,
+      address: {
+        '@type': 'PostalAddress',
+        addressLocality: property.locality || property.city || '',
+        addressRegion: 'Maharashtra',
+        addressCountry: 'IN',
+      },
+    };
+    if (property.monthly_rent != null && property.monthly_rent !== '') {
+      listing.offers = {
+        '@type': 'Offer',
+        price: String(property.monthly_rent),
+        priceCurrency: 'INR',
+        availability: 'https://schema.org/InStock',
+        url: propertyUrl,
+      };
+    }
+    jsonLd = listing;
+  } else {
+    jsonLd = {
+      '@context': 'https://schema.org',
+      '@type': 'Organization',
+      name: 'Denner',
+      url: siteUrl,
+      logo: `${siteUrl}/og-default.png`,
+      description: 'Rent verified flats in Pune. Move in with trust, not tension.',
+    };
+  }
+  // JSON-LD lives in raw-text <script> context, so HTML-entity escaping would
+  // corrupt the JSON. Only the "</" sequence can break out of the element; the
+  // values themselves come from JSON.stringify (already string-safe) and the DB
+  // text is escaped at the source. Neutralize "</" and U+2028/U+2029.
+  const jsonLdScript = JSON.stringify(jsonLd)
+    .replace(/<\//g, '<\\/')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+
   const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -136,6 +186,7 @@ export default async function handler(req, res) {
   <meta name="twitter:title" content="${escapeHtml(title)}" />
   <meta name="twitter:description" content="${escapeHtml(description)}" />
   <meta name="twitter:image" content="${escapeHtml(image)}" />
+  <script type="application/ld+json">${jsonLdScript}</script>
   <meta http-equiv="refresh" content="0; url=${escapeHtml(propertyUrl)}" />
 </head>
 <body>

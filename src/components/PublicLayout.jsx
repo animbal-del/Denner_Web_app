@@ -89,8 +89,15 @@ export default function PublicLayout() {
           <nav className="footer-links">
             <Link to="/properties">Browse</Link>
             <Link to="/urgent-help">Urgent help</Link>
+            <Link to="/flats-in-kharadi">Kharadi</Link>
+            <Link to="/flats-in-viman-nagar">Viman Nagar</Link>
+            <Link to="/flats-in-wakad">Wakad</Link>
+            <Link to="/flats-in-baner">Baner</Link>
+            <Link to="/faq">FAQ</Link>
+            <Link to="/guide">Pune rent guide</Link>
             {!isAuthenticated && <Link to="/login">Log in</Link>}
             {isAuthenticated && <Link to="/account">Dashboard</Link>}
+            <Link to="/privacy">Privacy</Link>
           </nav>
         </div>
       </footer>

@@ -11,6 +11,10 @@ import ProfilePage from '../pages/ProfilePage.jsx';
 import LikedPropertiesPage from '../pages/LikedPropertiesPage.jsx';
 import UrgentHelpPage from '../pages/UrgentHelpPage.jsx';
 import NotFound from '../pages/NotFound.jsx';
+import PrivacyPolicy from '../pages/PrivacyPolicy.jsx';
+import AreaPage from '../pages/AreaPage.jsx';
+import FaqPage from '../pages/FaqPage.jsx';
+import GuidePage from '../pages/GuidePage.jsx';
 import { useAuth } from '../services/authService.jsx';
 import { PublicPropertiesProvider } from '../services/publicPropertiesContext.jsx';
 
@@ -62,6 +66,10 @@ export default function App() {
         <Route path="/properties" element={<BrowseScope><PropertiesPage /></BrowseScope>} />
         <Route path="/property/:shareCode" element={<BrowseScope><PropertyDetailPage /></BrowseScope>} />
         <Route path="/urgent-help" element={<UrgentHelpPage />} />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
+        <Route path="/flats-in-:slug" element={<AreaPage />} />
+        <Route path="/faq" element={<FaqPage />} />
+        <Route path="/guide" element={<GuidePage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route
