@@ -5,6 +5,7 @@ import App from './app/App.jsx';
 import { AuthProvider } from './services/authService.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { queryClient } from './lib/queryClient.js';
+import { Analytics } from '@vercel/analytics/react';
 import './styles/global.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -13,6 +14,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <App />
+          <Analytics />
         </AuthProvider>
       </QueryClientProvider>
     </BrowserRouter>
