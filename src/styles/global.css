@@ -565,6 +565,7 @@ img, video { display: block; max-width: 100%; }
 .detail-eyebrow { font-size: 0.7rem; font-weight: var(--fw-semibold); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 0 0 4px; }
 .detail-title { font-family: var(--font-serif); font-size: clamp(1.6rem,2.8vw,2.4rem); font-weight: var(--fw-bold); letter-spacing: var(--ls-snug); line-height: var(--lh-heading); margin: 0; color: var(--text); }
 .detail-location { margin: -4px 0 0; color: var(--muted); font-size: var(--text-base); }
+.detail-meta { margin: 0; color: var(--text); font-size: var(--text-base); font-weight: var(--fw-semibold); }
 .detail-price-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .detail-price { font-size: 1.7rem; font-weight: var(--fw-bold); color: var(--text); letter-spacing: var(--ls-snug); line-height: 1; }
 .detail-price-unit { font-size: var(--text-sm); font-weight: var(--fw-regular); color: var(--muted); margin-left: 2px; }

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthCard from '../components/AuthCard.jsx';
 import AuthField from '../components/AuthField.jsx';
 import { useAuth } from '../services/authService.jsx';
+import { track } from '../lib/analytics.js';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -26,6 +27,7 @@ export default function LoginPage() {
     setError('');
     try {
       await login({ email, password, expectedRole: role });
+      track('login', { method: 'email' });
       navigate(redirectPath, { replace: true });
     } catch (err) {
       setError(err.message || 'Login failed.');
@@ -53,7 +55,7 @@ export default function LoginPage() {
           </button>
         </form>
         <p className="auth-footnote">
-          Don’t have an account? <Link to="/signup">Create one</Link>
+          Don’t have an account? <Link to="/signup" state={location.state}>Create one</Link>
         </p>
       </AuthCard>
     </div>

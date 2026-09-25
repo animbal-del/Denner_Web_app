@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthCard from '../components/AuthCard.jsx';
 import AuthField from '../components/AuthField.jsx';
 import { useAuth } from '../services/authService.jsx';
+import { track } from '../lib/analytics.js';
 
 function friendlyError(raw = '') {
   const s = String(raw || '').toLowerCase();
@@ -29,6 +30,7 @@ function validatePassword(pw) {
 
 export default function SignupPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { signUp } = useAuth();
   const [role, setRole] = useState('user');
   const [form, setForm] = useState({
@@ -71,8 +73,11 @@ export default function SignupPage() {
     setSubmitting(true);
     try {
       await signUp({ role, ...form });
+      track('sign_up', { method: 'email' });
       setSuccess(true);
-      setTimeout(() => navigate(role === 'partner' ? '/partner-area' : '/account', { replace: true }), 2000);
+      // Renters who came from a property (e.g. "Log in to schedule") go back to it.
+      const returnPath = role === 'user' ? location.state?.from : null;
+      setTimeout(() => navigate(returnPath || (role === 'partner' ? '/partner-area' : '/account'), { replace: true }), 2000);
     } catch (err) {
       const { field, msg } = friendlyError(err.message || '');
       if (field) setFieldErrors({ [field]: msg });
@@ -223,7 +228,7 @@ export default function SignupPage() {
         </form>
 
         <p className="auth-footnote">
-          Already have an account? <Link to="/login">Log in</Link>
+          Already have an account? <Link to="/login" state={location.state}>Log in</Link>
         </p>
       </AuthCard>
     </div>

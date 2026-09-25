@@ -7,6 +7,7 @@ import { buildEmptyPreferences, getUserPreferences, upsertUserPreferences } from
 import { getAvailableLocalities, getRentBoundsForLocalities } from '../services/publicPropertiesService.js';
 import SearchableSelect from './SearchableSelect.jsx';
 import DualRangeSlider from './DualRangeSlider.jsx';
+import { propertyParams, track, trackThen } from '../lib/analytics.js';
 
 function normalizeLocalities(values = []) {
   return [...new Set((values || []).map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 3);
@@ -195,6 +196,7 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
         move_in_timeline: form.move_in_timeline || null,
         is_first_visit_form_completed: true,
       });
+      track('schedule_visit_submit', propertyParams(property));
       setPreferencesReady(true);
     } catch (err) {
       setError(err.message || 'Unable to save housing preferences.');
@@ -217,6 +219,17 @@ export default function RequestVisitModal({ open, onClose, property, onSuccess }
       };
       const result = await createVisitRequest({ profile, property, preferences });
       onSuccess?.(result.record);
+
+      // Primary Google Ads conversion. Fired here (not on a click listener) so
+      // it counts once per completed request, and before leaving the page so
+      // the tags get a chance to send. transaction_id lets Ads dedupe repeats.
+      // Kept short: desktop opens WhatsApp in a new tab, and Safari blocks
+      // pop-ups once ~1s has passed since the tap.
+      await new Promise((resolve) => trackThen('schedule_visit_whatsapp', {
+        ...propertyParams(property),
+        transaction_id: result.record?.id != null ? `visit-${result.record.id}` : undefined,
+        is_repeat: result.isDuplicate,
+      }, resolve, 500));
 
       // The most reliable cross-platform WhatsApp opener:
       // Create a real <a> element and click it — browsers NEVER block

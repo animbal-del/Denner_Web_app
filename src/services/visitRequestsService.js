@@ -1,5 +1,6 @@
 import { supabase, hasSupabase } from '../lib/supabaseClient.js';
 import { fetchPreviewPropertiesByIds } from './publicPropertiesService.js';
+import { getAttribution } from '../lib/analytics.js';
 
 const DEFAULT_DENNER_WHATSAPP = import.meta.env.VITE_DEFAULT_DENNER_WHATSAPP || '+919156005618';
 
@@ -120,11 +121,25 @@ export async function createVisitRequest({ profile, property, preferences }) {
     user_notes: null,
   };
 
-  const { data, error } = await supabase
+  // Ad click / UTM data from the landing URL, so each lead can be tied back to
+  // the campaign that produced it (see migration add_visit_request_attribution).
+  const attribution = getAttribution();
+  if (attribution) payload.attribution = attribution;
+
+  const insertRow = (row) => supabase
     .from('visit_requests')
-    .insert(payload)
+    .insert(row)
     .select('id, flat_id, flat_code_snapshot, user_profile_id, status, whatsapp_message_text, whatsapp_number_used, created_at')
     .single();
+
+  let { data, error } = await insertRow(payload);
+
+  // Attribution must never block a lead: if the insert fails with it (e.g. the
+  // column isn't migrated yet → PGRST204), retry once without it.
+  if (error && payload.attribution) {
+    delete payload.attribution;
+    ({ data, error } = await insertRow(payload));
+  }
 
   if (error) throw error;
 

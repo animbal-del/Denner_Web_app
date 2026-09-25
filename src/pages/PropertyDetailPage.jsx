@@ -7,6 +7,7 @@ import { usePublicProperties } from '../services/publicPropertiesContext.jsx';
 import SavePropertyButton from '../components/SavePropertyButton.jsx';
 import RequestVisitModal from '../components/RequestVisitModal.jsx';
 import MediaAsset from '../components/MediaAsset.jsx';
+import { propertyParams, track } from '../lib/analytics.js';
 
 // Share/WhatsApp config — derive absolute URLs from the public site domain
 // (mydenner.com) when configured, falling back to the current origin. Matches
@@ -109,6 +110,15 @@ export default function PropertyDetailPage() {
 
   useEffect(() => { setActiveIndex(0); }, [shareCode]);
 
+  // One view_property per property. Keyed on id, not the object: the list
+  // placeholder is swapped for the fetched record, which would double-fire.
+  const viewTrackedId = useRef(null);
+  useEffect(() => {
+    if (!property?.id || viewTrackedId.current === property.id) return;
+    viewTrackedId.current = property.id;
+    track('view_property', propertyParams(property));
+  }, [property?.id]);
+
   const gallery = useMemo(() => (property?.media || []).filter((item) => item?.url), [property]);
   const currentMedia = gallery[activeIndex] || null;
   const videoPoster = useMemo(
@@ -181,6 +191,9 @@ export default function PropertyDetailPage() {
   if (!property) return <div className="page-shell"><div className="container empty-state">Property not found.</div></div>;
 
   const isRenter = isAuthenticated && profile?.role === 'user';
+  const returnPath = `${location.pathname}${location.search}`;
+  const furnishing = /^not specified$/i.test(String(property.furnishing_status || '').trim()) ? '' : property.furnishing_status;
+  const headerMeta = [property.bhk, furnishing].filter(Boolean).join(' · ');
 
   const detailFields = [
     { label: 'Deposit',        value: formatCurrency(property.deposit) },
@@ -255,6 +268,7 @@ export default function PropertyDetailPage() {
             <p className="eyebrow detail-eyebrow">Denner property</p>
             <h1 className="detail-title">{property.society_name}</h1>
             <p className="detail-location">{property.locality}, {property.city}</p>
+            {headerMeta && <p className="detail-meta">{headerMeta}</p>}
 
             {/* Price row */}
             <div className="detail-price-row">
@@ -291,6 +305,7 @@ export default function PropertyDetailPage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="button ghost detail-cta-btn detail-wa-btn"
+                  onClick={() => track('whatsapp_click', { ...propertyParams(property), source: 'property_detail' })}
                 >
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0 }}>
                     <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
@@ -301,11 +316,23 @@ export default function PropertyDetailPage() {
               )}
 
               {isRenter ? (
-                <button type="button" className="button primary detail-cta-btn" onClick={() => setShowVisitModal(true)}>
+                <button
+                  type="button"
+                  className="button primary detail-cta-btn"
+                  onClick={() => {
+                    track('schedule_visit_click', { ...propertyParams(property), auth_state: 'renter' });
+                    setShowVisitModal(true);
+                  }}
+                >
                   Schedule visit
                 </button>
               ) : (
-                <Link to="/login" state={{ from: location.pathname }} className="button primary detail-cta-btn">
+                <Link
+                  to="/login"
+                  state={{ from: returnPath }}
+                  className="button primary detail-cta-btn"
+                  onClick={() => track('schedule_visit_click', { ...propertyParams(property), auth_state: isAuthenticated ? 'partner' : 'logged_out' })}
+                >
                   Log in to schedule
                 </Link>
               )}
@@ -330,8 +357,8 @@ export default function PropertyDetailPage() {
                 <p className="detail-gate-sub">See deposit, contact, and schedule a visit.</p>
               </div>
               <div className="detail-gate-actions">
-                <Link to="/login" state={{ from: location.pathname }} className="button primary">Log in</Link>
-                <Link to="/signup" state={{ from: location.pathname }} className="button ghost">Sign up</Link>
+                <Link to="/login" state={{ from: returnPath }} className="button primary">Log in</Link>
+                <Link to="/signup" state={{ from: returnPath }} className="button ghost">Sign up</Link>
               </div>
             </div>
           ) : !isRenter ? (
