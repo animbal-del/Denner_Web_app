@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../services/authService.jsx';
+import { track } from '../lib/analytics.js';
+
+const SUPPORT_EMAIL = 'support@mydenner.com';
+const DENNER_WHATSAPP = (import.meta.env.VITE_DEFAULT_DENNER_WHATSAPP || '919156005618').replace(/[^\d]/g, '');
 
 export default function PublicLayout() {
   const { isAuthenticated, profile, logout } = useAuth();
@@ -85,6 +89,18 @@ export default function PublicLayout() {
           <div className="footer-brand-col">
             <strong>Denner.</strong>
             <p>Move in with trust, not tension.</p>
+            <p className="footer-contact">
+              <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
+              {' · '}
+              <a
+                href={`https://wa.me/${DENNER_WHATSAPP}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => track('whatsapp_click', { source: 'footer' })}
+              >
+                WhatsApp us
+              </a>
+            </p>
           </div>
           <nav className="footer-links">
             <Link to="/properties">Browse</Link>
@@ -93,6 +109,7 @@ export default function PublicLayout() {
             {!isAuthenticated && <Link to="/login">Log in</Link>}
             {isAuthenticated && <Link to="/account">Dashboard</Link>}
             <Link to="/privacy">Privacy</Link>
+            <Link to="/terms">Terms</Link>
           </nav>
         </div>
       </footer>

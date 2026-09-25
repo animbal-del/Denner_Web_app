@@ -2,12 +2,12 @@ import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 
 // NOTE FOR THE OPERATOR: This is a thorough, good-faith privacy policy template
-// aligned with India's DPDP Act 2023 + IT Rules 2011 and Microsoft Clarity's
-// disclosure requirements. Replace the [bracketed] placeholders (legal entity
+// aligned with India's DPDP Act 2023 + IT Rules 2011, Microsoft Clarity's and
+// Google Analytics / Google Ads disclosure requirements. Replace the [bracketed] placeholders (legal entity
 // name, registered address, Grievance Officer name + email) and have it reviewed
 // by a lawyer before relying on it.
 
-const LAST_UPDATED = '5 June 2026';
+const LAST_UPDATED = '26 September 2026';
 const COMPANY = 'Denner'; // [Registered legal entity name]
 const SITE = 'https://mydenner.com';
 const GRIEVANCE_EMAIL = 'privacy@mydenner.com';
@@ -49,6 +49,7 @@ export default function PrivacyPolicy() {
           <li><strong>Account data</strong> you provide: name, email address, phone number, city/state, and (for partners) company and locality details.</li>
           <li><strong>Activity data</strong>: properties you view, save/like, search filters, visit requests and “urgent help” requests you submit.</li>
           <li><strong>Technical &amp; usage data</strong>: IP address, device/browser type, approximate location (city/country), pages visited, referring URLs, and interaction events — collected via cookies and analytics tools (Section 5).</li>
+          <li><strong>Advertising &amp; campaign data</strong>: if you arrive by clicking one of our ads or a tagged link, the ad click identifier (e.g., Google’s <code>gclid</code>) and campaign parameters (e.g., <code>utm_source</code>, <code>utm_campaign</code>) in that link.</li>
           <li><strong>Communications</strong>: messages you send us (e.g., via WhatsApp or email).</li>
         </ul>
         <p>We do not intentionally collect sensitive personal data (e.g., financial account numbers, biometric or health data) through the website.</p>
@@ -59,6 +60,7 @@ export default function PrivacyPolicy() {
           <li>To create and secure your account and authenticate you.</li>
           <li>To communicate with you about properties, visit requests and support.</li>
           <li>To understand usage and improve the site’s content, performance and user experience.</li>
+          <li>To measure how well our advertising works — for example, whether a click on a Google ad led to a property view or a visit request.</li>
           <li>To detect, prevent and address fraud, abuse and security issues.</li>
           <li>To comply with legal obligations.</li>
         </ul>
@@ -93,7 +95,35 @@ export default function PrivacyPolicy() {
             type, country, performance metrics). No cross-site tracking and no
             personally identifying profile is built.
           </li>
+          <li>
+            <strong>Google Analytics 4 and Google Tag Manager.</strong> We use
+            Google Analytics to understand how visitors use the site — pages
+            viewed, properties opened, and steps such as “Schedule visit” — and
+            Google Tag Manager to manage these measurement tags. Google Analytics
+            sets first-party cookies (such as <code>_ga</code>) and receives your
+            IP address, device and browser information and the events described
+            above. Event data is kept by Google Analytics for up to 14 months.
+          </li>
+          <li>
+            <strong>Google Ads conversion tracking.</strong> When you arrive from
+            one of our Google ads, Google Ads cookies (such as <code>_gcl_aw</code>)
+            store the ad click identifier so that Google can tell us whether the
+            click led to a visit request. We also keep that click identifier and
+            campaign parameters on your device for up to 90 days and attach them
+            to any visit request you submit, so we can see which campaigns
+            produce genuine enquiries.
+          </li>
         </ul>
+        <p>
+          We do <strong>not</strong> send your name, phone number, email address
+          or WhatsApp message contents to Google Analytics or Google Ads. To learn
+          how Google uses this data, see{' '}
+          <a href="https://policies.google.com/technologies/partner-sites" target="_blank" rel="noopener noreferrer">How Google uses information from sites that use its services</a>.
+          You can opt out of Google Analytics with the{' '}
+          <a href="https://tools.google.com/dlpage/gaoptout" target="_blank" rel="noopener noreferrer">Google Analytics opt-out browser add-on</a>{' '}
+          and manage ad personalisation in{' '}
+          <a href="https://myadcenter.google.com/" target="_blank" rel="noopener noreferrer">Google’s My Ad Center</a>.
+        </p>
         <p>
           You can control cookies through your browser settings. Blocking cookies
           may affect some functionality. Where required by law, we will seek your
@@ -107,6 +137,7 @@ export default function PrivacyPolicy() {
           <li><strong>Vercel</strong> — website hosting and (cookieless) analytics.</li>
           <li><strong>Cloudflare R2</strong> — media (image/video) storage and delivery.</li>
           <li><strong>Microsoft Clarity</strong> — behavioural analytics, heatmaps and session replay.</li>
+          <li><strong>Google (Google Analytics, Google Tag Manager, Google Ads)</strong> — website analytics and advertising measurement.</li>
         </ul>
         <p>We may also disclose data if required by law, court order, or to protect our rights, users or the public.</p>
 

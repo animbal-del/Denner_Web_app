@@ -12,6 +12,7 @@ import LikedPropertiesPage from '../pages/LikedPropertiesPage.jsx';
 import UrgentHelpPage from '../pages/UrgentHelpPage.jsx';
 import NotFound from '../pages/NotFound.jsx';
 import PrivacyPolicy from '../pages/PrivacyPolicy.jsx';
+import TermsPage from '../pages/TermsPage.jsx';
 import AreaPage from '../pages/AreaPage.jsx';
 import FaqPage from '../pages/FaqPage.jsx';
 import GuidePage from '../pages/GuidePage.jsx';
@@ -67,6 +68,7 @@ export default function App() {
         <Route path="/property/:shareCode" element={<BrowseScope><PropertyDetailPage /></BrowseScope>} />
         <Route path="/urgent-help" element={<UrgentHelpPage />} />
         <Route path="/privacy" element={<PrivacyPolicy />} />
+        <Route path="/terms" element={<TermsPage />} />
         <Route path="/flats-in-:slug" element={<AreaPage />} />
         <Route path="/faq" element={<FaqPage />} />
         <Route path="/guide" element={<GuidePage />} />
