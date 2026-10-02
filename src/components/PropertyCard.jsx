@@ -27,6 +27,11 @@ export default function PropertyCard({ property }) {
           imgWidth={480}
           poster={property.cover_image_url || ''}
         />
+        {property.is_zero_brokerage && (
+          <div className="zero-brokerage-ribbon" aria-label="Zero Brokerage">
+            <span aria-hidden="true">Zero Brokerage</span>
+          </div>
+        )}
       </div>
       <div className="property-body">
         <div className="property-topline">

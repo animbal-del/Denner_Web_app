@@ -20,6 +20,7 @@ const INITIAL_FILTERS = {
   bhk: '',
   propertyType: '',
   furnishingStatus: '',
+  zeroBrokerage: false,
   sortBy: 'newest',
 };
 
@@ -94,7 +95,7 @@ export default function PropertiesPage() {
   // ── Restore filter state from session ──────────────────────
   const [filters, setFilters] = useState(() => {
     const saved = loadPersistedState();
-    return { ...(saved?.filters || INITIAL_FILTERS), ...getUrlFilters() };
+    return { ...INITIAL_FILTERS, ...(saved?.filters || {}), ...getUrlFilters() };
   });
   const [search, setSearch] = useState(() => {
     return getUrlSearch() || loadPersistedState()?.search || '';
@@ -121,9 +122,10 @@ export default function PropertiesPage() {
     bhk: filters.bhk,
     propertyType: filters.propertyType,
     furnishingStatus: filters.furnishingStatus,
+    zeroBrokerage: filters.zeroBrokerage,
     sortBy: filters.sortBy,
     search: debouncedSearch,
-  }), [filters.localities, filters.city, filters.bhk, filters.propertyType, filters.furnishingStatus, filters.sortBy, debouncedSearch]);
+  }), [filters.localities, filters.city, filters.bhk, filters.propertyType, filters.furnishingStatus, filters.zeroBrokerage, filters.sortBy, debouncedSearch]);
 
   const hasServerFilter = Boolean(
     serverFilters.localities.length ||
@@ -131,6 +133,7 @@ export default function PropertiesPage() {
     serverFilters.bhk ||
     serverFilters.propertyType ||
     serverFilters.furnishingStatus ||
+    serverFilters.zeroBrokerage ||
     serverFilters.sortBy !== 'newest' ||
     serverFilters.search
   );
@@ -233,6 +236,7 @@ export default function PropertiesPage() {
     if (filters.bhk) count += 1;
     if (filters.propertyType) count += 1;
     if (filters.furnishingStatus) count += 1;
+    if (filters.zeroBrokerage) count += 1;
     if (filters.sortBy !== 'newest') count += 1;
     if (budgetChanged) count += 1;
     return count;
@@ -245,6 +249,7 @@ export default function PropertiesPage() {
     if (filters.bhk) pills.push({ key: 'bhk', label: getBhkLabel(filters.bhk), value: '' });
     if (filters.propertyType) pills.push({ key: 'propertyType', label: filters.propertyType, value: '' });
     if (filters.furnishingStatus) pills.push({ key: 'furnishingStatus', label: filters.furnishingStatus, value: '' });
+    if (filters.zeroBrokerage) pills.push({ key: 'zeroBrokerage', label: 'Zero Brokerage', value: false });
     if (filters.sortBy !== 'newest') {
       pills.push({ key: 'sortBy', label: filters.sortBy === 'rent-low' ? 'Rent: low to high' : 'Rent: high to low', value: 'newest' });
     }
@@ -405,6 +410,20 @@ export default function PropertiesPage() {
                     {bhk}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            <div className="filter-row-section">
+              <span className="filter-row-label">Brokerage</span>
+              <div className="bhk-chip-row">
+                <button
+                  type="button"
+                  className={`bhk-chip${filters.zeroBrokerage ? ' active' : ''}`}
+                  aria-pressed={filters.zeroBrokerage}
+                  onClick={() => updateFilter('zeroBrokerage', !filters.zeroBrokerage)}
+                >
+                  Zero Brokerage only
+                </button>
               </div>
             </div>
 

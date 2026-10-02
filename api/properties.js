@@ -27,6 +27,7 @@ export default async function handler(req, res) {
       bhk:              req.query.bhk              || '',
       sortBy:           req.query.sortBy           || 'newest',
       search:           req.query.search           || '',
+      zeroBrokerage:    req.query.zeroBrokerage === '1',
     };
 
     const data = await fetchProperties(filters, page, PUBLIC_PAGE_SIZE);

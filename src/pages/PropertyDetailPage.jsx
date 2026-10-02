@@ -197,6 +197,7 @@ export default function PropertyDetailPage() {
 
   const detailFields = [
     { label: 'Deposit',        value: formatCurrency(property.deposit) },
+    ...(property.is_zero_brokerage ? [{ label: 'Brokerage', value: '₹0 · Zero Brokerage' }] : []),
     { label: 'Maintenance',    value: formatCurrency(property.maintenance) },
     { label: 'Bathrooms',      value: property.bathrooms || '—' },
     { label: 'Balconies',      value: property.balconies || '—' },
@@ -277,8 +278,9 @@ export default function PropertyDetailPage() {
             </div>
 
             {/* Tags */}
-            {(property.highlights || []).length > 0 && (
+            {((property.highlights || []).length > 0 || property.is_zero_brokerage) && (
               <div className="detail-tags">
+                {property.is_zero_brokerage && <span className="detail-tag detail-tag--zero-brokerage">Zero Brokerage</span>}
                 {(property.highlights || []).map((item) => (
                   <span key={item} className="detail-tag">{item}</span>
                 ))}

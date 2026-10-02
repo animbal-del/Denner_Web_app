@@ -36,6 +36,7 @@ export async function fetchPropertiesWithFilters(filters = {}, page = 1) {
   if (filters.bhk)              params.set('bhk', filters.bhk);
   if (filters.sortBy)           params.set('sortBy', filters.sortBy);
   if (filters.search)           params.set('search', filters.search);
+  if (filters.zeroBrokerage)    params.set('zeroBrokerage', '1');
   return apiFetch(`/api/properties?${params}`);
 }
 

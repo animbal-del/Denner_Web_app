@@ -19,14 +19,14 @@ const PUBLIC_SELECT = `
   monthly_rent, deposit, maintenance, furnishing_status, sq_ft,
   bathrooms, balconies, available_from, listing_status, business_status,
   visibility_status, description, cover_image_url,
-  handler_whatsapp_number, handler_name, updated_at
+  handler_whatsapp_number, handler_name, is_zero_brokerage, updated_at
 `;
 
 // Narrow projection for list/grid cards — only columns the grid renders,
 // plus updated_at (used for sort/keyset).
 const LIST_SELECT = `
   id, society_name, city, locality, sub_locality, bhk, property_type,
-  monthly_rent, furnishing_status, cover_image_url, updated_at
+  monthly_rent, furnishing_status, cover_image_url, is_zero_brokerage, updated_at
 `;
 
 // ── Pure helpers ─────────────────────────────────────────────
@@ -142,6 +142,7 @@ function normalizeProperty(row, mediaMap, shareCodeMap) {
     description: row.description || '',
     handler_whatsapp_number: row.handler_whatsapp_number || null,
     handler_name: row.handler_name || null,
+    is_zero_brokerage: Boolean(row.is_zero_brokerage),
     highlights: [row.furnishing_status, row.property_type].filter(Boolean).slice(0, 2),
     cover_image_url: coverProxy,
     media: media.length ? media : fallbackCover,
@@ -305,7 +306,7 @@ export async function fetchRentBoundsForLocalities(localities = []) {
 export async function fetchProperties(filters = {}, page = 1, pageSize = PUBLIC_PAGE_SIZE) {
   const {
     localities = [], city = '', propertyType = '', furnishingStatus = '',
-    bhk = '', sortBy = 'newest', search = '',
+    bhk = '', sortBy = 'newest', search = '', zeroBrokerage = false,
   } = filters;
 
   const start = Math.max(0, (page - 1) * pageSize);
@@ -319,6 +320,7 @@ export async function fetchProperties(filters = {}, page = 1, pageSize = PUBLIC_
   if (propertyType)     q = q.eq('property_type', propertyType);
   if (furnishingStatus) q = q.eq('furnishing_status', furnishingStatus);
   if (bhk && bhk !== '4+') q = q.ilike('bhk', `${bhk}%`);
+  if (zeroBrokerage)    q = q.eq('is_zero_brokerage', true);
   if (search) {
     const safe = search.replace(/%/g, '\\%').replace(/_/g, '\\_');
     q = q.or(`society_name.ilike.%${safe}%,locality.ilike.%${safe}%,sub_locality.ilike.%${safe}%,city.ilike.%${safe}%`);
