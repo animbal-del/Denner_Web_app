@@ -4,7 +4,7 @@ import { useAuth } from '../services/authService.jsx';
 import { track } from '../lib/analytics.js';
 
 const SUPPORT_EMAIL = 'support@mydenner.com';
-const DENNER_WHATSAPP = (import.meta.env.VITE_DEFAULT_DENNER_WHATSAPP || '919156005618').replace(/[^\d]/g, '');
+const DENNER_WHATSAPP = (import.meta.env.VITE_DEFAULT_DENNER_WHATSAPP || '919518974818').replace(/[^\d]/g, '');
 
 export default function PublicLayout() {
   const { isAuthenticated, profile, logout } = useAuth();

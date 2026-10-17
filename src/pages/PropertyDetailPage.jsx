@@ -13,7 +13,7 @@ import { propertyParams, track } from '../lib/analytics.js';
 // (mydenner.com) when configured, falling back to the current origin. Matches
 // the pattern used in visitRequestsService.js.
 const SHARE_BASE = (import.meta.env.VITE_PUBLIC_SITE_URL || (typeof window !== 'undefined' ? window.location.origin : '') || '').replace(/\/$/, '');
-const DENNER_WHATSAPP = import.meta.env.VITE_DEFAULT_DENNER_WHATSAPP || '919156005618';
+const DENNER_WHATSAPP = import.meta.env.VITE_DEFAULT_DENNER_WHATSAPP || '919518974818';
 
 function formatCurrency(amount) {
   if (!amount && amount !== 0) return '—';

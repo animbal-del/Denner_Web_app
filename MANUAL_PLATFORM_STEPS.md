@@ -61,7 +61,7 @@ Settings → General. Region pinning (`bom1`) and WAF rate-limit rules need **Pr
 | Key | Value | Notes |
 |-----|-------|-------|
 | `VITE_PUBLIC_SITE_URL` | `https://mydenner.com` | build-time inlined → redeploy after change |
-| `VITE_DEFAULT_DENNER_WHATSAPP` | `919156005618` | share/contact number (no `+`) |
+| `VITE_DEFAULT_DENNER_WHATSAPP` | `919518974818` | share/contact number (no `+`) |
 | `MEDIA_ORIGIN_BASE` | *(leave UNSET until R2 ready)* | set to `https://img.mydenner.com` in step D to serve images from R2 |
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | *(existing)* | service-role server-only |
 | `VITE_SUPABASE_STORAGE_BUCKET` | `property-media` | only if bucket differs from default |

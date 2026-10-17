@@ -2,7 +2,7 @@ import { supabase, hasSupabase } from '../lib/supabaseClient.js';
 import { fetchPreviewPropertiesByIds } from './publicPropertiesService.js';
 import { getAttribution } from '../lib/analytics.js';
 
-const DEFAULT_DENNER_WHATSAPP = import.meta.env.VITE_DEFAULT_DENNER_WHATSAPP || '+919156005618';
+const DEFAULT_DENNER_WHATSAPP = import.meta.env.VITE_DEFAULT_DENNER_WHATSAPP || '+919518974818';
 
 function cleanOptional(value) {
   const text = String(value ?? '').trim();
