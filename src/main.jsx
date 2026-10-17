@@ -1,4 +1,5 @@
-// Analytics: Google Tag Manager (GA4 + Ads, env-gated), Vercel Web Analytics +
+// Analytics: Google Tag Manager (GA4 + Ads, env-gated; booted from
+// public/analytics-boot.js before this bundle loads), Vercel Web Analytics +
 // Speed Insights, Microsoft Clarity (env-gated)
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
@@ -10,10 +11,7 @@ import { queryClient } from './lib/queryClient.js';
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from '@vercel/speed-insights/react';
 import Clarity from './components/Clarity.jsx';
-import { initAnalytics } from './lib/analytics.js';
 import './styles/global.css';
-
-initAnalytics();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <ErrorBoundary>
