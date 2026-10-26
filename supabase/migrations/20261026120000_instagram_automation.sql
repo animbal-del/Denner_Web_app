@@ -102,6 +102,12 @@ CREATE TABLE IF NOT EXISTS public.social_settings (
   experiment_days       smallint NOT NULL DEFAULT 28 CHECK (experiment_days BETWEEN 7 AND 120),
   experiment_start      date,
   cta_phone_line        text     NOT NULL DEFAULT '📞 Call: 9518974818 / 7020738841',
+  -- AI captions (OpenAI): hook + hashtags only, standard caption otherwise.
+  ai_captions_enabled   boolean  NOT NULL DEFAULT true,
+  ai_model              text     NOT NULL DEFAULT 'gpt-5.6-luna' CHECK (ai_model ~ '^[a-z0-9][a-z0-9.\-]{2,60}$'),
+  ai_monthly_budget_usd numeric(8,4) NOT NULL DEFAULT 1 CHECK (ai_monthly_budget_usd BETWEEN 0 AND 100),
+  ai_price_input_per_mtok  numeric(8,4) NOT NULL DEFAULT 0.25 CHECK (ai_price_input_per_mtok BETWEEN 0 AND 100),
+  ai_price_output_per_mtok numeric(8,4) NOT NULL DEFAULT 2 CHECK (ai_price_output_per_mtok BETWEEN 0 AND 100),
   link_base             text     NOT NULL DEFAULT 'https://mydenner.com',
   campaign              text     NOT NULL DEFAULT 'inventory',
   -- Music for Reels comes from Instagram's own licensed library (Audio API),
@@ -191,7 +197,7 @@ CREATE TABLE IF NOT EXISTS public.social_post_jobs (
   utm_campaign     text,
   utm_content      text,
   caption          jsonb,
-  caption_source   text CHECK (caption_source IN ('claude', 'fallback', 'manual')),
+  caption_source   text CHECK (caption_source IN ('openai', 'fallback', 'manual')),
   -- Music (Reels only)
   audio_id         text REFERENCES public.social_audio_tracks(audio_id) ON DELETE SET NULL,
   audio_volume     smallint CHECK (audio_volume BETWEEN 1 AND 100),
@@ -381,6 +387,46 @@ BEGIN
 END;
 $$;
 
+-- ── 6d. AI caption cache and usage (budget) ─────────────────────────────────
+-- Cache: one AI hook per (prompt version, model, public listing facts), so an
+-- unchanged listing never triggers a second paid request. Holds only the
+-- hook and hashtags, both built from public facts.
+CREATE TABLE IF NOT EXISTS public.social_caption_cache (
+  key             text PRIMARY KEY,
+  model           text NOT NULL,
+  prompt_version  text NOT NULL,
+  hook            text NOT NULL,
+  hashtags        text[] NOT NULL DEFAULT '{}',
+  hits            integer NOT NULL DEFAULT 0,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+-- One row per AI request, for the monthly budget (month = 'YYYY-MM', IST).
+CREATE TABLE IF NOT EXISTS public.social_ai_usage (
+  id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  month          text NOT NULL CHECK (month ~ '^[0-9]{4}-[0-9]{2}$'),
+  provider       text NOT NULL DEFAULT 'openai',
+  model          text,
+  purpose        text NOT NULL DEFAULT 'caption_hook',
+  job_id         uuid REFERENCES public.social_post_jobs(id) ON DELETE SET NULL,
+  input_tokens   integer NOT NULL DEFAULT 0,
+  output_tokens  integer NOT NULL DEFAULT 0,
+  cost_usd       numeric(12,6) NOT NULL DEFAULT 0,
+  outcome        text,
+  created_at     timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_social_ai_usage_month ON public.social_ai_usage (month);
+
+-- Count a cache hit (service role only).
+CREATE OR REPLACE FUNCTION public.social_caption_cache_hit(p_key text)
+RETURNS void
+LANGUAGE sql
+SET search_path = ''
+AS $$
+  UPDATE public.social_caption_cache SET hits = hits + 1 WHERE key = p_key;
+$$;
+
 -- ── 7. Credentials (service role only) ──────────────────────────────────────
 -- One row per connected account ('test', 'production'). token_ciphertext is
 -- AES-256-GCM sealed by the server with SOCIAL_TOKEN_KEY (server env only).
@@ -441,6 +487,8 @@ ALTER TABLE public.social_job_events    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.social_credentials   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.social_post_metrics  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.social_leads         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.social_caption_cache ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.social_ai_usage      ENABLE ROW LEVEL SECURITY;
 -- social_credentials gets no policies: only service_role (which bypasses RLS)
 -- can touch it.
 
@@ -476,21 +524,27 @@ DROP POLICY IF EXISTS social_leads_admin_read ON public.social_leads;
 CREATE POLICY social_leads_admin_read ON public.social_leads
   FOR SELECT TO authenticated USING ((SELECT public.is_admin()));
 
+DROP POLICY IF EXISTS social_ai_usage_admin_read ON public.social_ai_usage;
+CREATE POLICY social_ai_usage_admin_read ON public.social_ai_usage
+  FOR SELECT TO authenticated USING ((SELECT public.is_admin()));
+-- social_caption_cache: no policies; service role only.
+
 -- ── 9. Grants ───────────────────────────────────────────────────────────────
 REVOKE ALL ON public.social_settings, public.social_flat_settings, public.social_audio_tracks,
               public.social_post_jobs, public.social_post_assets, public.social_job_events,
-              public.social_credentials, public.social_post_metrics, public.social_leads
+              public.social_credentials, public.social_post_metrics, public.social_leads,
+              public.social_caption_cache, public.social_ai_usage
   FROM anon, authenticated;
 
 GRANT SELECT ON public.social_settings, public.social_flat_settings, public.social_audio_tracks,
                 public.social_post_jobs, public.social_post_assets, public.social_job_events,
-                public.social_post_metrics, public.social_leads
+                public.social_post_metrics, public.social_leads, public.social_ai_usage
   TO authenticated;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.social_settings, public.social_flat_settings,
               public.social_audio_tracks, public.social_post_jobs, public.social_post_assets,
               public.social_job_events, public.social_credentials, public.social_post_metrics,
-              public.social_leads
+              public.social_leads, public.social_caption_cache, public.social_ai_usage
   TO service_role;
 
 REVOKE ALL ON FUNCTION public.social_connection_status() FROM PUBLIC, anon;
@@ -498,6 +552,8 @@ GRANT EXECUTE ON FUNCTION public.social_connection_status() TO authenticated, se
 REVOKE ALL ON FUNCTION public.social_touch_updated_at() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.social_slot_report(text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.social_slot_report(text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.social_caption_cache_hit(text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.social_caption_cache_hit(text) TO service_role;
 
 COMMIT;
 
@@ -526,7 +582,9 @@ NOTIFY pgrst, 'reload schema';
 --   BEGIN;
 --   DROP FUNCTION IF EXISTS public.social_connection_status();
 --   DROP FUNCTION IF EXISTS public.social_slot_report(text);
---   DROP TABLE IF EXISTS public.social_leads, public.social_post_metrics,
+--   DROP FUNCTION IF EXISTS public.social_caption_cache_hit(text);
+--   DROP TABLE IF EXISTS public.social_ai_usage, public.social_caption_cache,
+--     public.social_leads, public.social_post_metrics,
 --     public.social_job_events, public.social_post_assets,
 --     public.social_post_jobs, public.social_audio_tracks, public.social_flat_settings,
 --     public.social_settings, public.social_credentials;
