@@ -33,6 +33,9 @@
 --     AND (table_name, column_name) IN (('inventory_flats','id'), ('profiles','id'));
 -- PRE-CHECK 3: gen_random_uuid() is available (pgcrypto / PG13+):
 --   SELECT gen_random_uuid();
+-- PRE-CHECK 4: visit_requests has the attribution column (20260926120000):
+--   SELECT 1 FROM information_schema.columns
+--   WHERE table_name = 'visit_requests' AND column_name = 'attribution';
 --
 -- Run the whole file at once in the Supabase SQL editor. If any statement
 -- fails, nothing is changed.
@@ -66,13 +69,15 @@ CREATE TABLE IF NOT EXISTS public.social_settings (
   reel_enabled          boolean  NOT NULL DEFAULT true,
   -- Daily posting slots: how many posts a day, at what local time, which
   -- format. The carousel/Reel mix is the mix of slots.
-  schedule_slots        jsonb    NOT NULL DEFAULT '[{"time":"11:00","format":"reel"},{"time":"19:30","format":"carousel"}]'
+  -- Initial 28-day experiment: three Reels a day (lunch and evening).
+  schedule_slots        jsonb    NOT NULL DEFAULT '[{"time":"12:30","format":"reel"},{"time":"18:30","format":"reel"},{"time":"21:15","format":"reel"}]'
                           CHECK (jsonb_typeof(schedule_slots) = 'array' AND jsonb_array_length(schedule_slots) <= 6),
   active_weekdays       smallint[] NOT NULL DEFAULT ARRAY[1,2,3,4,5,6,7]::smallint[]
                           CHECK (active_weekdays <@ ARRAY[1,2,3,4,5,6,7]::smallint[]),
   blackout_dates        date[]   NOT NULL DEFAULT '{}',
   queue_days_ahead      smallint NOT NULL DEFAULT 3 CHECK (queue_days_ahead BETWEEN 1 AND 14),
   repost_cooldown_days  smallint NOT NULL DEFAULT 30 CHECK (repost_cooldown_days >= 1),
+  min_gap_minutes       smallint NOT NULL DEFAULT 90 CHECK (min_gap_minutes BETWEEN 15 AND 720),
   -- Any website flat with one usable photo can be posted.
   min_carousel_photos   smallint NOT NULL DEFAULT 1 CHECK (min_carousel_photos >= 1),
   min_reel_photos       smallint NOT NULL DEFAULT 1 CHECK (min_reel_photos >= 1),
@@ -85,6 +90,11 @@ CREATE TABLE IF NOT EXISTS public.social_settings (
   reel_target_seconds   smallint NOT NULL DEFAULT 15 CHECK (reel_target_seconds BETWEEN 8 AND 30),
   prefer_unstamped_photos boolean NOT NULL DEFAULT true,
   render_window         jsonb    NOT NULL DEFAULT '{"start":"00:30","end":"08:00"}',
+  -- Experiment label stamped on every post, so slots can be compared. The
+  -- schedule is never changed automatically.
+  experiment_name       text     NOT NULL DEFAULT 'slots-28d-1' CHECK (experiment_name ~ '^[a-z0-9-]{3,40}$'),
+  experiment_days       smallint NOT NULL DEFAULT 28 CHECK (experiment_days BETWEEN 7 AND 120),
+  experiment_start      date,
   cta_phone_line        text     NOT NULL DEFAULT '📞 Call: 9518974818 / 7020738841',
   link_base             text     NOT NULL DEFAULT 'https://mydenner.com',
   campaign              text     NOT NULL DEFAULT 'inventory',
@@ -183,6 +193,8 @@ CREATE TABLE IF NOT EXISTS public.social_post_jobs (
                      'not_applicable', 'pending', 'selected', 'unavailable', 'attached', 'none')),
   -- Scheduling, approval, retries
   scheduled_for    timestamptz,
+  slot_time        text CHECK (slot_time IS NULL OR slot_time = 'manual' OR slot_time ~ '^[0-2][0-9]:[0-5][0-9]$'),
+  experiment       text,
   approved_by_profile_id bigint REFERENCES public.profiles(id) ON DELETE SET NULL,
   approved_at      timestamptz,
   attempts         smallint NOT NULL DEFAULT 0,
@@ -198,6 +210,10 @@ CREATE TABLE IF NOT EXISTS public.social_post_jobs (
   published_at     timestamptz,
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz NOT NULL DEFAULT now(),
+  -- Reporting columns, derived from the snapshot (never written directly).
+  locality         text   GENERATED ALWAYS AS (source_snapshot->>'locality') STORED,
+  bhk              text   GENERATED ALWAYS AS (source_snapshot->>'bhk') STORED,
+  monthly_rent     bigint GENERATED ALWAYS AS ((source_snapshot->>'monthly_rent')::numeric::bigint) STORED,
   CONSTRAINT social_post_jobs_dedupe UNIQUE (flat_code, format, campaign, revision),
   CONSTRAINT social_post_jobs_snapshot_size CHECK (pg_column_size(source_snapshot) <= 8192)
 );
@@ -213,6 +229,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_social_post_jobs_ig_media
 
 CREATE INDEX IF NOT EXISTS idx_social_post_jobs_queue
   ON public.social_post_jobs (status, scheduled_for);
+
+CREATE INDEX IF NOT EXISTS idx_social_post_jobs_experiment
+  ON public.social_post_jobs (experiment, slot_time) WHERE status = 'published';
 
 CREATE INDEX IF NOT EXISTS idx_social_post_jobs_flat
   ON public.social_post_jobs (flat_code, created_at DESC);
@@ -252,6 +271,108 @@ CREATE TABLE IF NOT EXISTS public.social_job_events (
 
 CREATE INDEX IF NOT EXISTS idx_social_job_events_job
   ON public.social_job_events (job_id, created_at);
+
+-- ── 6b. Performance: per-post Instagram metrics, one row per day ──────────
+-- Filled from the Instagram insights API (Phase 4-5). Numbers are what
+-- Instagram reports; nothing is estimated.
+CREATE TABLE IF NOT EXISTS public.social_post_metrics (
+  job_id              uuid NOT NULL REFERENCES public.social_post_jobs(id) ON DELETE CASCADE,
+  captured_on         date NOT NULL,
+  reach               integer,
+  views               integer,
+  likes               integer,
+  comments            integer,
+  shares              integer,
+  saves               integer,
+  total_interactions  integer,
+  profile_visits      integer,
+  follows             integer,
+  raw                 jsonb,
+  captured_at         timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (job_id, captured_on)
+);
+
+-- ── 6c. Leads from Instagram comments and DMs (Phase 5) ─────────────────────
+-- Minimal personal data: no handles or names, only a hash of Instagram's
+-- app-scoped user id (to merge repeat messages) and a staff status.
+-- Website inquiries are counted from visit_requests via their utm tags.
+CREATE TABLE IF NOT EXISTS public.social_leads (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id            uuid REFERENCES public.social_post_jobs(id) ON DELETE SET NULL,
+  flat_code         text,
+  channel           text NOT NULL CHECK (channel IN ('comment', 'dm', 'other')),
+  ig_user_hash      text,
+  visit_request_id  bigint REFERENCES public.visit_requests(id) ON DELETE SET NULL,
+  status            text NOT NULL DEFAULT 'new' CHECK (status IN (
+                      'new', 'qualified', 'not_qualified', 'visit_requested', 'visit_completed', 'rented', 'opted_out')),
+  qualified_at      timestamptz,
+  notes             text,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_social_leads_job ON public.social_leads (job_id, status);
+
+DROP TRIGGER IF EXISTS trg_social_leads_updated_at ON public.social_leads;
+CREATE TRIGGER trg_social_leads_updated_at
+  BEFORE UPDATE ON public.social_leads
+  FOR EACH ROW EXECUTE FUNCTION public.social_touch_updated_at();
+
+-- Slot comparison for one experiment: published posts per slot with their
+-- latest Instagram numbers, website inquiries that arrived through each
+-- post's link (visit_requests.attribution utm tags) and Instagram leads.
+-- Admin only; returns aggregates, never visit or lead rows.
+CREATE OR REPLACE FUNCTION public.social_slot_report(p_experiment text)
+RETURNS TABLE (
+  slot_time text, posts integer, avg_reach bigint, avg_views bigint,
+  shares bigint, saves bigint, inquiries bigint, qualified_leads bigint
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'admin only' USING ERRCODE = '42501';
+  END IF;
+  RETURN QUERY
+  WITH posts AS (
+    SELECT j.id, j.slot_time AS slot, j.utm_content
+    FROM public.social_post_jobs j
+    WHERE j.experiment = p_experiment AND j.status = 'published'
+  ),
+  latest AS (
+    SELECT DISTINCT ON (m.job_id) m.job_id, m.reach, m.views, m.shares, m.saves
+    FROM public.social_post_metrics m
+    WHERE m.job_id IN (SELECT id FROM posts)
+    ORDER BY m.job_id, m.captured_on DESC
+  ),
+  web AS (
+    SELECT p.id AS job_id, count(v.id) AS n
+    FROM posts p
+    JOIN public.visit_requests v
+      ON v.attribution->>'utm_source' = 'instagram' AND v.attribution->>'utm_content' = p.utm_content
+    GROUP BY p.id
+  ),
+  ig AS (
+    SELECT l.job_id, count(*) AS n,
+           count(*) FILTER (WHERE l.status IN ('qualified', 'visit_requested', 'visit_completed', 'rented')) AS q
+    FROM public.social_leads l
+    WHERE l.job_id IN (SELECT id FROM posts)
+    GROUP BY l.job_id
+  )
+  SELECT p.slot, count(*)::integer, round(avg(lt.reach))::bigint, round(avg(lt.views))::bigint,
+         coalesce(sum(lt.shares), 0)::bigint, coalesce(sum(lt.saves), 0)::bigint,
+         (coalesce(sum(w.n), 0) + coalesce(sum(ig.n), 0))::bigint, coalesce(sum(ig.q), 0)::bigint
+  FROM posts p
+  LEFT JOIN latest lt ON lt.job_id = p.id
+  LEFT JOIN web w ON w.job_id = p.id
+  LEFT JOIN ig ON ig.job_id = p.id
+  GROUP BY p.slot
+  ORDER BY p.slot;
+END;
+$$;
 
 -- ── 7. Credentials (service role only) ──────────────────────────────────────
 -- One row per connected account ('test', 'production'). token_ciphertext is
@@ -311,6 +432,8 @@ ALTER TABLE public.social_post_jobs     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.social_post_assets   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.social_job_events    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.social_credentials   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.social_post_metrics  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.social_leads         ENABLE ROW LEVEL SECURITY;
 -- social_credentials gets no policies: only service_role (which bypasses RLS)
 -- can touch it.
 
@@ -338,24 +461,36 @@ DROP POLICY IF EXISTS social_job_events_admin_read ON public.social_job_events;
 CREATE POLICY social_job_events_admin_read ON public.social_job_events
   FOR SELECT TO authenticated USING ((SELECT public.is_admin()));
 
+DROP POLICY IF EXISTS social_post_metrics_admin_read ON public.social_post_metrics;
+CREATE POLICY social_post_metrics_admin_read ON public.social_post_metrics
+  FOR SELECT TO authenticated USING ((SELECT public.is_admin()));
+
+DROP POLICY IF EXISTS social_leads_admin_read ON public.social_leads;
+CREATE POLICY social_leads_admin_read ON public.social_leads
+  FOR SELECT TO authenticated USING ((SELECT public.is_admin()));
+
 -- ── 9. Grants ───────────────────────────────────────────────────────────────
 REVOKE ALL ON public.social_settings, public.social_flat_settings, public.social_audio_tracks,
               public.social_post_jobs, public.social_post_assets, public.social_job_events,
-              public.social_credentials
+              public.social_credentials, public.social_post_metrics, public.social_leads
   FROM anon, authenticated;
 
 GRANT SELECT ON public.social_settings, public.social_flat_settings, public.social_audio_tracks,
-                public.social_post_jobs, public.social_post_assets, public.social_job_events
+                public.social_post_jobs, public.social_post_assets, public.social_job_events,
+                public.social_post_metrics, public.social_leads
   TO authenticated;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.social_settings, public.social_flat_settings,
               public.social_audio_tracks, public.social_post_jobs, public.social_post_assets,
-              public.social_job_events, public.social_credentials
+              public.social_job_events, public.social_credentials, public.social_post_metrics,
+              public.social_leads
   TO service_role;
 
 REVOKE ALL ON FUNCTION public.social_connection_status() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.social_connection_status() TO authenticated, service_role;
 REVOKE ALL ON FUNCTION public.social_touch_updated_at() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.social_slot_report(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.social_slot_report(text) TO authenticated, service_role;
 
 COMMIT;
 
@@ -374,6 +509,7 @@ NOTIFY pgrst, 'reload schema';
 --   SELECT has_table_privilege('anon', 'public.social_post_jobs', 'SELECT');          -- false
 --   SELECT has_table_privilege('authenticated', 'public.social_credentials', 'SELECT'); -- false
 --   SELECT has_table_privilege('authenticated', 'public.social_post_jobs', 'UPDATE');  -- false
+--   SELECT has_table_privilege('anon', 'public.social_leads', 'SELECT');               -- false
 --
 -- Website count is unchanged:
 --   SELECT count(*) FROM public.public_listings;
@@ -382,7 +518,9 @@ NOTIFY pgrst, 'reload schema';
 -- Removes everything this file added. Nothing else depends on these objects.
 --   BEGIN;
 --   DROP FUNCTION IF EXISTS public.social_connection_status();
---   DROP TABLE IF EXISTS public.social_job_events, public.social_post_assets,
+--   DROP FUNCTION IF EXISTS public.social_slot_report(text);
+--   DROP TABLE IF EXISTS public.social_leads, public.social_post_metrics,
+--     public.social_job_events, public.social_post_assets,
 --     public.social_post_jobs, public.social_audio_tracks, public.social_flat_settings,
 --     public.social_settings, public.social_credentials;
 --   DROP FUNCTION IF EXISTS public.social_touch_updated_at();
