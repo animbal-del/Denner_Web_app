@@ -64,16 +64,27 @@ CREATE TABLE IF NOT EXISTS public.social_settings (
   timezone              text     NOT NULL DEFAULT 'Asia/Kolkata',
   carousel_enabled      boolean  NOT NULL DEFAULT true,
   reel_enabled          boolean  NOT NULL DEFAULT true,
-  carousels_per_day     smallint NOT NULL DEFAULT 2 CHECK (carousels_per_day BETWEEN 0 AND 10),
-  reels_per_day         smallint NOT NULL DEFAULT 1 CHECK (reels_per_day BETWEEN 0 AND 5),
-  publish_times         text[]   NOT NULL DEFAULT ARRAY['11:00', '19:30'],
+  -- Daily posting slots: how many posts a day, at what local time, which
+  -- format. The carousel/Reel mix is the mix of slots.
+  schedule_slots        jsonb    NOT NULL DEFAULT '[{"time":"11:00","format":"reel"},{"time":"19:30","format":"carousel"}]'
+                          CHECK (jsonb_typeof(schedule_slots) = 'array' AND jsonb_array_length(schedule_slots) <= 6),
+  active_weekdays       smallint[] NOT NULL DEFAULT ARRAY[1,2,3,4,5,6,7]::smallint[]
+                          CHECK (active_weekdays <@ ARRAY[1,2,3,4,5,6,7]::smallint[]),
   blackout_dates        date[]   NOT NULL DEFAULT '{}',
+  queue_days_ahead      smallint NOT NULL DEFAULT 3 CHECK (queue_days_ahead BETWEEN 1 AND 14),
   repost_cooldown_days  smallint NOT NULL DEFAULT 30 CHECK (repost_cooldown_days >= 1),
-  min_carousel_photos   smallint NOT NULL DEFAULT 2 CHECK (min_carousel_photos >= 2),
-  min_reel_photos       smallint NOT NULL DEFAULT 3 CHECK (min_reel_photos >= 1),
-  max_carousel_slides   smallint NOT NULL DEFAULT 8 CHECK (max_carousel_slides BETWEEN 2 AND 9),
-  max_reel_photos       smallint NOT NULL DEFAULT 8 CHECK (max_reel_photos BETWEEN 1 AND 15),
+  -- Any website flat with one usable photo can be posted.
+  min_carousel_photos   smallint NOT NULL DEFAULT 1 CHECK (min_carousel_photos >= 1),
+  min_reel_photos       smallint NOT NULL DEFAULT 1 CHECK (min_reel_photos >= 1),
+  max_carousel_slides   smallint NOT NULL DEFAULT 8 CHECK (max_carousel_slides BETWEEN 1 AND 8),
+  max_reel_photos       smallint NOT NULL DEFAULT 8 CHECK (max_reel_photos BETWEEN 1 AND 12),
   priority_localities   text[]   NOT NULL DEFAULT ARRAY['Kharadi', 'Viman Nagar', 'Kalyani Nagar', 'Koregaon Park'],
+  -- Rendering
+  carousel_template     text     NOT NULL DEFAULT 'classic' CHECK (carousel_template IN ('classic', 'noir')),
+  reel_template         text     NOT NULL DEFAULT 'classic' CHECK (reel_template IN ('classic', 'noir')),
+  reel_target_seconds   smallint NOT NULL DEFAULT 15 CHECK (reel_target_seconds BETWEEN 8 AND 30),
+  prefer_unstamped_photos boolean NOT NULL DEFAULT true,
+  render_window         jsonb    NOT NULL DEFAULT '{"start":"00:30","end":"08:00"}',
   cta_phone_line        text     NOT NULL DEFAULT '📞 Call: 9518974818 / 7020738841',
   link_base             text     NOT NULL DEFAULT 'https://mydenner.com',
   campaign              text     NOT NULL DEFAULT 'inventory',
@@ -153,6 +164,7 @@ CREATE TABLE IF NOT EXISTS public.social_post_jobs (
                      'skipped', 'held', 'failed', 'cancelled')),
   status_reason    text,
   score            numeric,
+  render_warnings  jsonb,
   dry_run          boolean NOT NULL DEFAULT true,
   -- What the post was built from: allowlisted public fields only.
   source_snapshot  jsonb NOT NULL,
