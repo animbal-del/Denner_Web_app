@@ -88,9 +88,12 @@ CREATE TABLE IF NOT EXISTS public.social_settings (
   carousel_template     text     NOT NULL DEFAULT 'classic' CHECK (carousel_template IN ('classic', 'noir')),
   reel_template         text     NOT NULL DEFAULT 'classic' CHECK (reel_template IN ('classic', 'noir')),
   reel_target_seconds   smallint NOT NULL DEFAULT 15 CHECK (reel_target_seconds BETWEEN 12 AND 18),
-  -- "NEXT PHOTO IN 03" countdown on Reels (not on the last photo, the end
+  -- "Next photo in" countdown on Reels (not on the last photo, the end
   -- card or one-photo Reels). Applies to Reels rendered after a change.
   countdown_enabled     boolean  NOT NULL DEFAULT true,
+  -- ring_capsule (A: two-line label + ring), ring_badge (B: ring + caption),
+  -- pill (C: one-line pill). All count S..0 and vanish as the next photo starts.
+  countdown_style       text     NOT NULL DEFAULT 'ring_capsule' CHECK (countdown_style IN ('ring_capsule', 'ring_badge', 'pill')),
   prefer_unstamped_photos boolean NOT NULL DEFAULT true,
   render_window         jsonb    NOT NULL DEFAULT '{"start":"00:30","end":"08:00"}',
   -- Experiment label stamped on every post, so slots can be compared. The
