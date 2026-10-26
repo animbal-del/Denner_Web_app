@@ -87,7 +87,10 @@ CREATE TABLE IF NOT EXISTS public.social_settings (
   -- Rendering
   carousel_template     text     NOT NULL DEFAULT 'classic' CHECK (carousel_template IN ('classic', 'noir')),
   reel_template         text     NOT NULL DEFAULT 'classic' CHECK (reel_template IN ('classic', 'noir')),
-  reel_target_seconds   smallint NOT NULL DEFAULT 15 CHECK (reel_target_seconds BETWEEN 8 AND 30),
+  reel_target_seconds   smallint NOT NULL DEFAULT 15 CHECK (reel_target_seconds BETWEEN 12 AND 18),
+  -- "NEXT PHOTO IN 03" countdown on Reels (not on the last photo, the end
+  -- card or one-photo Reels). Applies to Reels rendered after a change.
+  countdown_enabled     boolean  NOT NULL DEFAULT true,
   prefer_unstamped_photos boolean NOT NULL DEFAULT true,
   render_window         jsonb    NOT NULL DEFAULT '{"start":"00:30","end":"08:00"}',
   -- Experiment label stamped on every post, so slots can be compared. The
@@ -175,6 +178,7 @@ CREATE TABLE IF NOT EXISTS public.social_post_jobs (
   status_reason    text,
   score            numeric,
   render_warnings  jsonb,
+  render_options   jsonb,
   dry_run          boolean NOT NULL DEFAULT true,
   -- What the post was built from: allowlisted public fields only.
   source_snapshot  jsonb NOT NULL,
