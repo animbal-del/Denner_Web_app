@@ -7,6 +7,7 @@ import { usePublicProperties } from '../services/publicPropertiesContext.jsx';
 import SavePropertyButton from '../components/SavePropertyButton.jsx';
 import RequestVisitModal from '../components/RequestVisitModal.jsx';
 import MediaAsset from '../components/MediaAsset.jsx';
+import FurnitureIcons from '../components/FurnitureIcons.jsx';
 import { propertyParams, track } from '../lib/analytics.js';
 
 // Share/WhatsApp config — derive absolute URLs from the public site domain
@@ -247,7 +248,7 @@ export default function PropertyDetailPage() {
           </div>
 
           {/* Property details grid — shown BELOW media on mobile, inside left col on desktop */}
-          {isRenter && (
+          {(
             <div className="detail-specs-card">
               <h3 className="detail-specs-heading">Property details</h3>
               <div className="detail-specs-grid">
@@ -291,6 +292,8 @@ export default function PropertyDetailPage() {
             {property.description && (
               <p className="detail-copy">{property.description}</p>
             )}
+
+            <FurnitureIcons description={property.description} />
 
             {/* Action buttons */}
             <div className="detail-cta-group">
@@ -359,8 +362,8 @@ export default function PropertyDetailPage() {
                 </svg>
               </div>
               <div>
-                <strong className="detail-gate-title">Full details unlock after login</strong>
-                <p className="detail-gate-sub">See deposit, contact, and schedule a visit.</p>
+                <strong className="detail-gate-title">Log in to schedule a visit</strong>
+                <p className="detail-gate-sub">Create a free account to book a visit with the Denner team.</p>
               </div>
               <div className="detail-gate-actions">
                 <Link to="/login" state={{ from: returnPath }} className="button primary">Log in</Link>
@@ -376,7 +379,7 @@ export default function PropertyDetailPage() {
           ) : null}
 
           {/* Specs card — shown here on tablet/mobile, hidden on desktop (shown under media col instead) */}
-          {isRenter && (
+          {(
             <div className="detail-specs-card detail-specs-card-inline">
               <h3 className="detail-specs-heading">Property details</h3>
               <div className="detail-specs-grid">
