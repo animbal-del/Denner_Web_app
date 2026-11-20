@@ -91,20 +91,6 @@ export default function AccountPage() {
             </div>
             <span className="quicklink-arrow">→</span>
           </Link>
-
-          <Link to="/urgent-help" className="quicklink-card quicklink-card--accent">
-            <div className="quicklink-icon">
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                <path d="M9 2v7l4 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                <circle cx="9" cy="9" r="7" stroke="currentColor" strokeWidth="1.5"/>
-              </svg>
-            </div>
-            <div>
-              <strong className="quicklink-title">Urgent help</strong>
-              <p className="quicklink-desc">Use the priority route when you need fast support.</p>
-            </div>
-            <span className="quicklink-arrow">→</span>
-          </Link>
         </div>
       </div>
     </div>

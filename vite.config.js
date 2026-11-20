@@ -34,5 +34,11 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: process.env.PORT ? parseInt(process.env.PORT, 10) : 5173,
     strictPort: Boolean(process.env.PORT),
+    // vercel.json's CSP + catch-all rewrite break Vite HMR under `vercel dev`,
+    // so browse Vite directly and forward /api to the `vercel dev` functions.
+    proxy: {
+      '/api': 'http://localhost:3000',
+      '/og': 'http://localhost:3000',
+    },
   },
 }));

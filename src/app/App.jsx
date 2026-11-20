@@ -9,7 +9,7 @@ import PropertiesPage from '../pages/PropertiesPage.jsx';
 import PropertyDetailPage from '../pages/PropertyDetailPage.jsx';
 import ProfilePage from '../pages/ProfilePage.jsx';
 import LikedPropertiesPage from '../pages/LikedPropertiesPage.jsx';
-import UrgentHelpPage from '../pages/UrgentHelpPage.jsx';
+import ContactPage from '../pages/ContactPage.jsx';
 import NotFound from '../pages/NotFound.jsx';
 import PrivacyPolicy from '../pages/PrivacyPolicy.jsx';
 import TermsPage from '../pages/TermsPage.jsx';
@@ -66,7 +66,8 @@ export default function App() {
         <Route path="/" element={<BrowseScope><HomePage /></BrowseScope>} />
         <Route path="/properties" element={<BrowseScope><PropertiesPage /></BrowseScope>} />
         <Route path="/property/:shareCode" element={<BrowseScope><PropertyDetailPage /></BrowseScope>} />
-        <Route path="/urgent-help" element={<UrgentHelpPage />} />
+        <Route path="/urgent-help" element={<Navigate to="/contact" replace />} />
+        <Route path="/contact" element={<ContactPage />} />
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/flats-in-:slug" element={<AreaPage />} />

@@ -157,7 +157,7 @@ export default function AreaPage() {
 
         <p style={{ marginTop: '1.5rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
           <Link to={browseHref} className="button primary">Browse {area.name} flats</Link>
-          <Link to="/urgent-help" className="button ghost">Need a home fast?</Link>
+          <Link to="/contact" className="button ghost">Need a home fast?</Link>
         </p>
 
         {/* Highlights */}

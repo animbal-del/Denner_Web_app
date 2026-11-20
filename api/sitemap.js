@@ -19,7 +19,7 @@ function db() {
 const STATIC_ROUTES = [
   { path: '/',            changefreq: 'daily',   priority: '1.0' },
   { path: '/properties',  changefreq: 'hourly',  priority: '0.9' },
-  { path: '/urgent-help', changefreq: 'monthly', priority: '0.6' },
+  { path: '/contact',     changefreq: 'monthly', priority: '0.5' },
   { path: '/privacy',     changefreq: 'yearly',  priority: '0.3' },
   { path: '/terms',       changefreq: 'yearly',  priority: '0.3' },
   { path: '/faq',         changefreq: 'monthly', priority: '0.5' },

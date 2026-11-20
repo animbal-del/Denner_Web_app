@@ -12,6 +12,7 @@ import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from '@vercel/speed-insights/react';
 import Clarity from './components/Clarity.jsx';
 import './styles/global.css';
+import './styles/redesign.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <ErrorBoundary>

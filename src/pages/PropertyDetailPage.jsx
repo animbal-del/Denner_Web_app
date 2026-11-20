@@ -1,87 +1,75 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../services/authService.jsx';
 import { getPreviewPropertyByShareCode } from '../services/publicPropertiesService.js';
 import { usePublicProperties } from '../services/publicPropertiesContext.jsx';
-import SavePropertyButton from '../components/SavePropertyButton.jsx';
 import RequestVisitModal from '../components/RequestVisitModal.jsx';
 import MediaAsset from '../components/MediaAsset.jsx';
 import FurnitureIcons from '../components/FurnitureIcons.jsx';
+import useSavedProperties from '../hooks/useSavedProperties.js';
+import { inr, furnLabel } from '../components/redesign/FlatCard.jsx';
 import { propertyParams, track } from '../lib/analytics.js';
 
-// Share/WhatsApp config — derive absolute URLs from the public site domain
-// (mydenner.com) when configured, falling back to the current origin. Matches
-// the pattern used in visitRequestsService.js.
+// Share/WhatsApp links use the public site domain when configured.
 const SHARE_BASE = (import.meta.env.VITE_PUBLIC_SITE_URL || (typeof window !== 'undefined' ? window.location.origin : '') || '').replace(/\/$/, '');
-const DENNER_WHATSAPP = import.meta.env.VITE_DEFAULT_DENNER_WHATSAPP || '919518974818';
+const DENNER_WHATSAPP = (import.meta.env.VITE_DEFAULT_DENNER_WHATSAPP || '919518974818').replace(/[^\d]/g, '');
 
-function formatCurrency(amount) {
-  if (!amount && amount !== 0) return '—';
-  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
-}
+// Ops sometimes types NA / N/A / - for unknown fields
+const real = (v) => (v && !/^(na|n\/a|-|—|not specified)$/i.test(String(v).trim()) ? v : '');
 
-// Mirror MediaAsset's withWidth helper so prefetched URLs match the rendered
-// stage exactly (avoids downloading two cache variants of the same image).
+const isVideo = (m) => String(m?.media_type || '').toLowerCase() === 'video';
+
+// Same width step MediaAsset requests, so preloads hit the same cache entry.
 function withWidth(url, width) {
   if (!width || !url || !url.startsWith('/api/media')) return url;
   return `${url}&w=${width}`;
 }
 
-function MediaStage({ media, title, poster }) {
-  return (
-    <MediaAsset
-      media={media}
-      alt={title}
-      wrapperClassName="detail-stage"
-      imageClassName="detail-hero-image"
-      videoClassName="detail-hero-video"
-      placeholderClassName="detail-stage placeholder"
-      videoControls
-      imgWidth={1200}
-      poster={poster}
-    />
-  );
-}
+const Tick = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>
+);
 
-function LazyThumb({ media, index, activeIndex, onClick }) {
-  const ref = useRef(null);
-  const [inView, setInView] = useState(false);
-  const shouldLoad = inView || Math.abs(index - activeIndex) <= 1;
+function Lightbox({ gallery, index, setIndex, onClose, title, poster }) {
+  const cur = gallery[index];
+  const step = useCallback((d) => setIndex((i) => (i + d + gallery.length) % gallery.length), [gallery.length, setIndex]);
 
   useEffect(() => {
-    const el = ref.current;
-    if (!el || shouldLoad) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) setInView(true); },
-      { rootMargin: '100px' }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [shouldLoad]);
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft') step(-1);
+      if (e.key === 'ArrowRight') step(1);
+    };
+    document.addEventListener('keydown', onKey);
+    document.body.classList.add('rd-lock');
+    return () => { document.removeEventListener('keydown', onKey); document.body.classList.remove('rd-lock'); };
+  }, [onClose, step]);
+
+  // Preload neighbours
+  useEffect(() => {
+    [-1, 1].forEach((d) => {
+      const m = gallery[(index + d + gallery.length) % gallery.length];
+      if (m?.url && !isVideo(m)) { const img = new Image(); img.src = withWidth(m.url, 1280); }
+    });
+  }, [index, gallery]);
 
   return (
-    <button
-      ref={ref}
-      type="button"
-      className={`thumb-button${index === activeIndex ? ' active' : ''}`}
-      onClick={onClick}
-      aria-label={`Media ${index + 1}`}
-    >
-      {shouldLoad ? (
-        <MediaAsset
-          media={media}
-          alt="Thumbnail"
-          wrapperClassName="thumb-media"
-          imageClassName="thumb-media-image"
-          videoClassName="thumb-media-video"
-          placeholderClassName="thumb-media thumb-placeholder"
-          imgWidth={160}
-        />
-      ) : (
-        <div className="thumb-media thumb-placeholder" />
-      )}
-    </button>
+    <div className="rd-lb" role="dialog" aria-modal="true" aria-label="Photos" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <button type="button" className="x" onClick={onClose} aria-label="Close">✕</button>
+      {gallery.length > 1 && <button type="button" className="nv pv" onClick={() => step(-1)} aria-label="Previous">‹</button>}
+      <MediaAsset
+        media={cur}
+        alt={`${title} photo ${index + 1}`}
+        wrapperClassName="rd-lb-media"
+        placeholderClassName="rd-ph-none"
+        videoControls
+        imageLoading="eager"
+        imgWidth={1280}
+        poster={poster}
+      />
+      {gallery.length > 1 && <button type="button" className="nv nx" onClick={() => step(1)} aria-label="Next">›</button>}
+      <div className="ct">{index + 1}/{gallery.length}</div>
+    </div>
   );
 }
 
@@ -90,9 +78,11 @@ export default function PropertyDetailPage() {
   const location = useLocation();
   const { isAuthenticated, profile } = useAuth();
   const { properties } = usePublicProperties();
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [shareMessage, setShareMessage] = useState('');
+  const { isSaved, toggle, pendingId, error: saveError } = useSavedProperties();
+  const [lbIndex, setLbIndex] = useState(null);
+  const [message, setMessage] = useState('');
   const [showVisitModal, setShowVisitModal] = useState(false);
+  const [visitMsg, setVisitMsg] = useState('');
 
   const previewProperty = useMemo(
     () => properties.find((item) => item.share_code === shareCode || `flat-${item.id}` === shareCode) ?? undefined,
@@ -106,13 +96,10 @@ export default function PropertyDetailPage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const loading = isPending && !property;
-  const error = isError ? (fetchError?.message || 'Failed to load property preview.') : '';
+  useEffect(() => { setLbIndex(null); setMessage(''); setVisitMsg(''); window.scrollTo(0, 0); }, [shareCode]);
 
-  useEffect(() => { setActiveIndex(0); }, [shareCode]);
-
-  // One view_property per property. Keyed on id, not the object: the list
-  // placeholder is swapped for the fetched record, which would double-fire.
+  // One view_property per property (keyed on id: the list placeholder is
+  // swapped for the fetched record, which would otherwise double-fire).
   const viewTrackedId = useRef(null);
   useEffect(() => {
     if (!property?.id || viewTrackedId.current === property.id) return;
@@ -120,287 +107,259 @@ export default function PropertyDetailPage() {
     track('view_property', propertyParams(property));
   }, [property?.id]);
 
-  const gallery = useMemo(() => (property?.media || []).filter((item) => item?.url), [property]);
-  const currentMedia = gallery[activeIndex] || null;
-  const videoPoster = useMemo(
-    () => gallery.find((item) => String(item.media_type || '').toLowerCase() !== 'video')?.url || '',
-    [gallery]
-  );
+  const gallery = useMemo(() => (property?.media || []).filter((m) => m?.url), [property]);
+  const poster = useMemo(() => gallery.find((m) => !isVideo(m))?.url || property?.cover_image_url || '', [gallery, property]);
 
-  useEffect(() => {
-    [-1, 1].forEach((offset) => {
-      const item = gallery[activeIndex + offset];
-      if (!item?.url || String(item.media_type).toLowerCase() === 'video') return;
-      const img = new Image();
-      img.src = withWidth(item.url, 1200);
-    });
-  }, [activeIndex, gallery]);
-
-  const cycle = (step) => {
-    if (!gallery.length) return;
-    setActiveIndex((current) => (current + step + gallery.length) % gallery.length);
-  };
-
-  const ogShareUrl = property
-    ? `${SHARE_BASE}/og/${property.share_code || `flat-${property.id}`}`
-    : window.location.href;
-
-  function buildShareText() {
-    return [
-      property.society_name,
-      [property.bhk, property.locality, property.city].filter(Boolean).join(' · '),
-      [
-        property.property_type,
-        property.furnishing_status,
-        property.sq_ft ? `${property.sq_ft} sq ft` : null,
-      ].filter(Boolean).join(' · '),
-    ].filter(Boolean).join('\n');
+  if (isPending && !property) {
+    return (
+      <div className="rd-page">
+        <div className="rd-pw">
+          <div className="rd-gal n1 rd-skel" />
+        </div>
+      </div>
+    );
   }
-
-  async function handleShare() {
-    const shareTitle = `${property?.society_name || 'Denner property'} · Denner`;
-    const shareText = buildShareText();
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: shareTitle, text: shareText, url: ogShareUrl });
-      } else if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(`${shareText}\n${ogShareUrl}`);
-      }
-      setShareMessage('Link copied.');
-    } catch {
-      setShareMessage('Share cancelled.');
-    }
+  if (isError || !property) {
+    return (
+      <div className="rd-page">
+        <div className="rd-state">
+          <b>{isError ? 'This flat didn’t load' : 'Flat not found'}</b>
+          {isError ? (fetchError?.message || 'Please refresh the page.') : 'It may have been rented out.'}{' '}
+          <Link to="/properties">See all flats</Link>
+        </div>
+      </div>
+    );
   }
-
-  function buildWaTeamUrl() {
-    const number = DENNER_WHATSAPP.replace(/[^\d]/g, '');
-    const ref = property.share_code || `flat-${property.id}`;
-    const msg = [
-      `Hi, I have a query about this property:`,
-      ``,
-      `${property.society_name}`,
-      `${property.bhk} · ${property.locality}, ${property.city}`,
-      `${property.property_type}${property.furnishing_status ? ` · ${property.furnishing_status}` : ''}`,
-      ``,
-      `Link: ${SHARE_BASE}/og/${ref}`,
-    ].join('\n');
-    return `https://wa.me/${number}?text=${encodeURIComponent(msg)}`;
-  }
-
-  if (loading && !property) return <div className="page-shell"><div className="container empty-state">Loading property…</div></div>;
-  if (error) return <div className="page-shell"><div className="container empty-state">{error}</div></div>;
-  if (!property) return <div className="page-shell"><div className="container empty-state">Property not found.</div></div>;
 
   const isRenter = isAuthenticated && profile?.role === 'user';
   const returnPath = `${location.pathname}${location.search}`;
-  const furnishing = /^not specified$/i.test(String(property.furnishing_status || '').trim()) ? '' : property.furnishing_status;
-  const headerMeta = [property.bhk, furnishing].filter(Boolean).join(' · ');
+  const ref = property.share_code || `flat-${property.id}`;
+  const ogShareUrl = `${SHARE_BASE}/og/${ref}`;
+  const furnishing = furnLabel(property.furnishing_status);
+  const place = [real(property.sub_locality), property.locality, property.city].filter(Boolean).join(', ');
+  const saved = isSaved(property.id);
 
-  const detailFields = [
-    { label: 'Deposit',        value: formatCurrency(property.deposit) },
-    ...(property.is_zero_brokerage ? [{ label: 'Brokerage', value: '₹0 · Zero Brokerage' }] : []),
-    { label: 'Maintenance',    value: formatCurrency(property.maintenance) },
-    { label: 'Bathrooms',      value: property.bathrooms || '—' },
-    { label: 'Balconies',      value: property.balconies || '—' },
-    { label: 'Area',           value: property.sq_ft ? `${property.sq_ft} sq ft` : '—' },
-    { label: 'Available from', value: property.available_from || '—' },
-    { label: 'Sub locality',   value: property.sub_locality || '—' },
-    { label: 'Furnishing',     value: property.furnishing_status || '—' },
+  const waUrl = `https://wa.me/${DENNER_WHATSAPP}?text=${encodeURIComponent([
+    `Hi Denner! I'm interested in ${property.society_name}, ${property.locality} (${[property.bhk, `${inr(property.monthly_rent)}/mo`].filter(Boolean).join(', ')}). Is it still available?`,
+    '',
+    `Link: ${ogShareUrl}`,
+  ].join('\n'))}`;
+
+  const highlights = [
+    ...(property.is_zero_brokerage ? ['Zero brokerage'] : []),
+    ...((property.highlights || []).length
+      ? property.highlights
+      : [[property.bhk, furnishing.toLowerCase(), 'flat'].filter(Boolean).join(' '), `In ${property.locality}`, 'Verified by Denner']),
   ];
 
+  const keys = [
+    ['Rent', `${inr(property.monthly_rent)}/mo`],
+    ['Size', property.bhk || '—'],
+    ['Area', property.sq_ft ? `${property.sq_ft} sq ft` : '—'],
+    ['Furnishing', furnishing || '—'],
+  ];
+
+  const details = [
+    ['Deposit', inr(property.deposit)],
+    ...(property.is_zero_brokerage ? [['Brokerage', '₹0']] : []),
+    ['Maintenance', inr(property.maintenance)],
+    ['Bathrooms', real(property.bathrooms) || '—'],
+    ['Balconies', real(property.balconies) || '—'],
+    ['Area', property.sq_ft ? `${property.sq_ft} sq ft` : '—'],
+    ['Available from', real(property.available_from) || '—'],
+    ['Sub locality', real(property.sub_locality) || '—'],
+    ['Furnishing', furnishing || '—'],
+  ];
+
+  async function handleShare() {
+    const text = [property.society_name, [property.bhk, property.locality, property.city].filter(Boolean).join(' · ')].join('\n');
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `${property.society_name} · Denner`, text, url: ogShareUrl });
+        setMessage('');
+      } else {
+        await navigator.clipboard.writeText(`${text}\n${ogShareUrl}`);
+        setMessage('Link copied');
+      }
+    } catch { /* share sheet closed */ }
+  }
+
+  const tiles = gallery.slice(0, 5);
+
   return (
-    <div className="page-shell detail-page">
-      {/* Back link */}
-      <div className="container">
-        <Link to="/properties" className="detail-back-link">← Back to listings</Link>
-      </div>
+    <div className="rd-page">
+      <div className="rd-pw">
+        <Link to="/properties" className="rd-back">← All flats</Link>
 
-      {/* ── Main grid ─────────────────────────────────────── */}
-      <div className="container detail-grid">
+        {tiles.length ? (
+          <div className={`rd-gal rd-up${tiles.length < 5 ? ` n${tiles.length}` : ''}`}>
+            {tiles.map((m, i) => (
+              <button key={m.id || m.url} type="button" className="rd-g" onClick={() => setLbIndex(i)} aria-label={`Open photo ${i + 1}`}>
+                <MediaAsset
+                  media={m}
+                  alt={`${property.society_name} photo ${i + 1}`}
+                  wrapperClassName="rd-ph-media"
+                  placeholderClassName="rd-ph-none"
+                  imageLoading={i === 0 ? 'eager' : 'lazy'}
+                  imgWidth={i === 0 ? 1280 : 640}
+                  poster={poster}
+                />
+                {isVideo(m) && <span className="rd-play" aria-hidden="true">▶</span>}
+              </button>
+            ))}
+            <button type="button" className="rd-gal-all" onClick={() => setLbIndex(0)}>
+              View all {gallery.length} {gallery.length === 1 ? 'photo' : 'photos'}
+            </button>
+          </div>
+        ) : (
+          <div className="rd-gal n1 rd-up"><div className="rd-g"><div className="rd-ph-none">Photos coming soon</div></div></div>
+        )}
 
-        {/* LEFT — media */}
-        <div className="detail-media-col">
-          <div className="detail-media-card">
-            <div className="detail-carousel">
-              <MediaStage media={currentMedia} title={property.society_name} poster={videoPoster} />
-              {gallery.length > 1 && (
-                <>
-                  <button className="media-nav prev detail" onClick={() => cycle(-1)} aria-label="Previous">‹</button>
-                  <button className="media-nav next detail" onClick={() => cycle(1)} aria-label="Next">›</button>
-                  <div className="media-count-badge detail">{activeIndex + 1}/{gallery.length}</div>
-                </>
-              )}
+        <div className="rd-main">
+          <div>
+            <div className="rd-up rd-d1">
+              <div className="rd-ploc">{place}</div>
+              <h1>{property.society_name}</h1>
+              <div className="rd-keys">
+                {keys.map(([k, v]) => <div key={k} className="rd-key"><small>{k}</small><b>{v}</b></div>)}
+              </div>
             </div>
 
-            {gallery.length > 1 && (
-              <div className="thumb-strip">
-                {gallery.map((media, index) => (
-                  <LazyThumb
-                    key={media.id}
-                    media={media}
-                    index={index}
-                    activeIndex={activeIndex}
-                    onClick={() => setActiveIndex(index)}
-                  />
-                ))}
-              </div>
+            <section className="rd-sec">
+              <h2>Highlights</h2>
+              <div className="rd-hl">{highlights.map((h) => <div key={h}><Tick />{h}</div>)}</div>
+            </section>
+
+            {property.description && (
+              <section className="rd-sec">
+                <h2>About this flat</h2>
+                <p className="rd-desc">{property.description}</p>
+              </section>
             )}
+
+            <section className="rd-sec"><FurnitureIcons description={property.description} /></section>
+
+            <section className="rd-sec">
+              <h2>Details</h2>
+              <div className="rd-details">
+                {details.map(([k, v]) => <div key={k}><small>{k}</small><b>{v}</b></div>)}
+              </div>
+            </section>
+
+            <section className="rd-sec">
+              <h2>How renting with Denner works</h2>
+              <div className="rd-steps">
+                <div><b>Book a visit</b>Log in and pick a time. A Denner person shows you the flat.</div>
+                <div><b>Agree the terms</b>We help with rent, deposit and the agreement, all upfront.</div>
+                <div><b>Move in</b>Sign, pay the deposit, and get your keys.</div>
+              </div>
+            </section>
           </div>
 
-          {/* Property details grid — shown BELOW media on mobile, inside left col on desktop */}
-          {(
-            <div className="detail-specs-card">
-              <h3 className="detail-specs-heading">Property details</h3>
-              <div className="detail-specs-grid">
-                {detailFields.map(({ label, value }) => (
-                  <div key={label} className="detail-spec-cell">
-                    <span className="detail-spec-label">{label}</span>
-                    <strong className="detail-spec-value">{value}</strong>
-                  </div>
-                ))}
+          <aside className="rd-side">
+            <div className="rd-box">
+              <div className="rd-pprice">{inr(property.monthly_rent)} <small>/ month</small></div>
+              <div className="rd-subl">
+                <span>Deposit {inr(property.deposit)}</span>
+                {property.available_from && <span>Available: {property.available_from}</span>}
               </div>
-            </div>
-          )}
-        </div>
 
-        {/* RIGHT — info + actions */}
-        <div className="detail-info-col">
-          {/* Property header */}
-          <div className="detail-side-card">
-            <p className="eyebrow detail-eyebrow">Denner property</p>
-            <h1 className="detail-title">{property.society_name}</h1>
-            <p className="detail-location">{property.locality}, {property.city}</p>
-            {headerMeta && <p className="detail-meta">{headerMeta}</p>}
-
-            {/* Price row */}
-            <div className="detail-price-row">
-              <div className="detail-price">{formatCurrency(property.monthly_rent)}<span className="detail-price-unit">/mo</span></div>
-              <SavePropertyButton property={property} />
-            </div>
-
-            {/* Tags */}
-            {((property.highlights || []).length > 0 || property.is_zero_brokerage) && (
-              <div className="detail-tags">
-                {property.is_zero_brokerage && <span className="detail-tag detail-tag--zero-brokerage">Zero Brokerage</span>}
-                {(property.highlights || []).map((item) => (
-                  <span key={item} className="detail-tag">{item}</span>
-                ))}
-              </div>
-            )}
-
-            {/* Description */}
-            {property.description && (
-              <p className="detail-copy">{property.description}</p>
-            )}
-
-            <FurnitureIcons description={property.description} />
-
-            {/* Action buttons */}
-            <div className="detail-cta-group">
-              <button type="button" className="button ghost detail-cta-btn" onClick={handleShare}>
-                <svg width="15" height="15" viewBox="0 0 15 15" fill="none" style={{ flexShrink: 0 }}>
-                  <path d="M10.5 1.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm-7 3a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm7 5a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm-6.29-1.85 5.08-2.54M4.21 9.35l5.08 2.54" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                </svg>
-                Share
-              </button>
-
-              {/* Open to logged-out visitors too: ad clicks land here signed out, and
-                  this is their one no-signup way to reach the team. */}
               <a
-                href={buildWaTeamUrl()}
+                className="rd-pbtn-full wa"
+                href={waUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="button ghost detail-cta-btn detail-wa-btn"
                 onClick={() => track('whatsapp_click', {
                   ...propertyParams(property),
                   source: 'property_detail',
                   auth_state: isRenter ? 'renter' : isAuthenticated ? 'partner' : 'logged_out',
                 })}
               >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0 }}>
-                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
-                  <path d="M12 0C5.373 0 0 5.373 0 12c0 2.138.563 4.144 1.542 5.879L.057 23.886a.5.5 0 0 0 .612.612l6.007-1.485A11.933 11.933 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22a9.928 9.928 0 0 1-5.073-1.387l-.363-.215-3.765.931.947-3.663-.236-.375A9.944 9.944 0 0 1 2 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/>
-                </svg>
-                Ask on WhatsApp
+                Ask about this flat on WhatsApp
               </a>
 
               {isRenter ? (
                 <button
                   type="button"
-                  className="button primary detail-cta-btn"
+                  className="rd-pbtn-full"
                   onClick={() => {
                     track('schedule_visit_click', { ...propertyParams(property), auth_state: 'renter' });
                     setShowVisitModal(true);
                   }}
                 >
-                  Schedule visit
+                  Schedule a visit
                 </button>
-              ) : (
+              ) : !isAuthenticated ? (
                 <Link
                   to="/login"
                   state={{ from: returnPath }}
-                  className="button primary detail-cta-btn"
-                  onClick={() => track('schedule_visit_click', { ...propertyParams(property), auth_state: isAuthenticated ? 'partner' : 'logged_out' })}
+                  className="rd-pbtn-full"
+                  onClick={() => track('schedule_visit_click', { ...propertyParams(property), auth_state: 'logged_out' })}
                 >
-                  Log in to schedule
+                  Log in to schedule a visit
                 </Link>
-              )}
+              ) : null}
+
+              <div className="rd-row">
+                <button
+                  type="button"
+                  className={`rd-ghost${saved ? ' on' : ''}`}
+                  aria-pressed={saved}
+                  disabled={pendingId === property.id}
+                  onClick={() => toggle(property.id)}
+                >
+                  {saved ? '♥ Saved' : '♡ Save'}
+                </button>
+                <button type="button" className="rd-ghost" onClick={handleShare}>{message || 'Share'}</button>
+              </div>
+              {visitMsg && <p className="rd-msg" role="status">{visitMsg}</p>}
+              {saveError && <p className="rd-msg err">{saveError}</p>}
             </div>
 
-            {shareMessage && (
-              <p className="detail-share-msg">{shareMessage}</p>
-            )}
-          </div>
+            <div className="rd-trust">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="m9 12 2 2 4-4" /></svg>
+              Visited and checked by Denner before listing. Photos are of the actual flat.
+            </div>
 
-          {/* Auth gate card */}
-          {!isAuthenticated ? (
-            <div className="detail-gate-card">
-              <div className="detail-gate-lock">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <rect x="3" y="7" width="10" height="8" rx="2" stroke="currentColor" strokeWidth="1.4"/>
-                  <path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                </svg>
+            {!isAuthenticated ? (
+              <div className="rd-gate">
+                <h3>Log in to book your visit</h3>
+                <p>Visits are arranged by the Denner team. Log in, or create a free account in a minute.</p>
+                <div className="two">
+                  <Link className="li" to="/login" state={{ from: returnPath }}>Log in</Link>
+                  <Link className="sg" to="/signup" state={{ from: returnPath }}>Sign up</Link>
+                </div>
               </div>
-              <div>
-                <strong className="detail-gate-title">Log in to schedule a visit</strong>
-                <p className="detail-gate-sub">Create a free account to book a visit with the Denner team.</p>
+            ) : !isRenter ? (
+              <div className="rd-gate">
+                <h3>Partner account</h3>
+                <p>Visit requests are for renter accounts only.</p>
+                <div className="two"><Link className="sg" to="/partner-area">Partner Area</Link></div>
               </div>
-              <div className="detail-gate-actions">
-                <Link to="/login" state={{ from: returnPath }} className="button primary">Log in</Link>
-                <Link to="/signup" state={{ from: returnPath }} className="button ghost">Sign up</Link>
-              </div>
-            </div>
-          ) : !isRenter ? (
-            <div className="detail-gate-card">
-              <strong className="detail-gate-title">Partner account</strong>
-              <p className="detail-gate-sub">Visit requests are for renter accounts only.</p>
-              <Link to="/partner-area" className="button ghost" style={{ alignSelf: 'flex-start' }}>Partner Area</Link>
-            </div>
-          ) : null}
-
-          {/* Specs card — shown here on tablet/mobile, hidden on desktop (shown under media col instead) */}
-          {(
-            <div className="detail-specs-card detail-specs-card-inline">
-              <h3 className="detail-specs-heading">Property details</h3>
-              <div className="detail-specs-grid">
-                {detailFields.map(({ label, value }) => (
-                  <div key={label} className="detail-spec-cell">
-                    <span className="detail-spec-label">{label}</span>
-                    <strong className="detail-spec-value">{value}</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+            ) : null}
+          </aside>
         </div>
       </div>
 
-      <RequestVisitModal
-        open={showVisitModal}
-        onClose={() => setShowVisitModal(false)}
-        property={property}
-        onSuccess={() => setShareMessage('Visit request sent. WhatsApp opening…')}
-      />
+      {lbIndex !== null && gallery.length > 0 && (
+        <Lightbox
+          gallery={gallery}
+          index={lbIndex}
+          setIndex={setLbIndex}
+          onClose={() => setLbIndex(null)}
+          title={property.society_name}
+          poster={poster}
+        />
+      )}
+
+      <div className="rd-legacy">
+        <RequestVisitModal
+          open={showVisitModal}
+          onClose={() => setShowVisitModal(false)}
+          property={property}
+          onSuccess={() => setVisitMsg('Visit request sent. WhatsApp opening…')}
+        />
+      </div>
     </div>
   );
 }

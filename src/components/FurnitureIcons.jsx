@@ -77,7 +77,8 @@ export function parseFurniture(description) {
     if (!part) continue;
     for (const item of ITEMS) {
       if (!item.re.test(part)) continue;
-      const n = part.match(/^(\d+|one|two|three|four|five|six)\b/)?.[1];
+      // "6-Seater Sofa" is one sofa, not six.
+      const n = part.match(/^(\d+|one|two|three|four|five|six)\b(?!\s*-?\s*seat)/)?.[1];
       const count = n ? (NUM_WORDS[n] || Number(n)) : 0;
       const prev = found.get(item.key);
       found.set(item.key, { ...item, count: (prev?.count || 0) + count });

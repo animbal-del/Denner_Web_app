@@ -33,7 +33,8 @@ export async function fetchPropertiesWithFilters(filters = {}, page = 1) {
   if (filters.city)             params.set('city', filters.city);
   if (filters.propertyType)     params.set('propertyType', filters.propertyType);
   if (filters.furnishingStatus) params.set('furnishingStatus', filters.furnishingStatus);
-  if (filters.bhk)              params.set('bhk', filters.bhk);
+  const bhk = Array.isArray(filters.bhk) ? filters.bhk.join(',') : filters.bhk;
+  if (bhk)                      params.set('bhk', bhk);
   if (filters.sortBy)           params.set('sortBy', filters.sortBy);
   if (filters.search)           params.set('search', filters.search);
   if (filters.zeroBrokerage)    params.set('zeroBrokerage', '1');

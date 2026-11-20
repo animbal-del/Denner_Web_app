@@ -303,6 +303,20 @@ export async function fetchRentBoundsForLocalities(localities = []) {
   };
 }
 
+// BHK filter: comma list of sizes, e.g. "2,2.5,3.5+". Values in the DB look
+// like "2 BHK" / "2.5 BHK", so "2 %" matches 2 BHK but not 2.5 BHK.
+// "3.5+" (and legacy "4+") expand to every size from there up.
+const BIG_BHK = ['3.5', '4', '4.5', '5', '5.5', '6', '7', '8'];
+function bhkFilterPatterns(raw = '') {
+  const out = new Set();
+  String(raw).split(',').map((v) => v.trim()).filter(Boolean).forEach((v) => {
+    if (v === '3.5+') BIG_BHK.forEach((b) => out.add(b));
+    else if (v === '4+') BIG_BHK.slice(1).forEach((b) => out.add(b));
+    else if (/^\d+(\.5)?$/.test(v)) out.add(v);
+  });
+  return [...out];
+}
+
 export async function fetchProperties(filters = {}, page = 1, pageSize = PUBLIC_PAGE_SIZE) {
   const {
     localities = [], city = '', propertyType = '', furnishingStatus = '',
@@ -319,7 +333,8 @@ export async function fetchProperties(filters = {}, page = 1, pageSize = PUBLIC_
   if (city)             q = q.eq('city', city);
   if (propertyType)     q = q.eq('property_type', propertyType);
   if (furnishingStatus) q = q.eq('furnishing_status', furnishingStatus);
-  if (bhk && bhk !== '4+') q = q.ilike('bhk', `${bhk}%`);
+  const bhkPatterns = bhkFilterPatterns(bhk);
+  if (bhkPatterns.length) q = q.or(bhkPatterns.map((v) => `bhk.ilike."${v} %"`).join(','));
   if (zeroBrokerage)    q = q.eq('is_zero_brokerage', true);
   if (search) {
     const safe = search.replace(/%/g, '\\%').replace(/_/g, '\\_');

@@ -1,120 +1,98 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { usePublicProperties } from '../services/publicPropertiesContext.jsx';
+import BgVideo from '../components/redesign/BgVideo.jsx';
+import FlatCard from '../components/redesign/FlatCard.jsx';
+
+const FEATURED = 6;
+const bhkOf = (p) => String(p?.bhk || '').trim().split(/\s/)[0];
+
+// Fades cards up as they scroll into view, staggered across each row of three.
+function useReveal(deps) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const root = ref.current;
+    if (!root) return undefined;
+    const cards = [...root.querySelectorAll('.rd-card:not(.show)')];
+    if (!('IntersectionObserver' in window)) { cards.forEach((c) => c.classList.add('show')); return undefined; }
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e, i) => {
+        if (!e.isIntersecting) return;
+        setTimeout(() => e.target.classList.add('show'), (i % 3) * 120);
+        io.unobserve(e.target);
+      });
+    }, { threshold: 0.15 });
+    cards.forEach((c) => io.observe(c));
+    return () => io.disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  return ref;
+}
 
 export default function HomePage() {
+  const { properties, loading, error } = usePublicProperties();
+  const [heroIn, setHeroIn] = useState(false);
+  const [bhk, setBhk] = useState('all');
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setTimeout(() => setHeroIn(true), 80));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  const featured = useMemo(() => {
+    const list = bhk === 'all' ? properties : properties.filter((p) => bhkOf(p) === bhk);
+    return list.slice(0, FEATURED);
+  }, [properties, bhk]);
+
+  const gridRef = useReveal([featured]);
+
   return (
-    <div>
-      {/* ── Hero ─────────────────────────────────────────────── */}
-      <section className="hero">
-        <div className="container hero-grid">
-          <div className="hero-content">
-            <p className="eyebrow">Move in with trust, not tension</p>
-            <h1>
-              Find your<br />
-              <em>perfect flat.</em>
-            </h1>
-            <p className="hero-body">
-              Browse verified homes, shortlist them, and coordinate visits — all in one place.
-            </p>
-            <div className="hero-actions">
-              <Link to="/properties" className="button primary">Browse Properties</Link>
-              <Link to="/signup" className="button ghost">Create account</Link>
-            </div>
-
-            {/* Stat pills — replace orphaned text pills */}
-            <div className="hero-stats">
-              <div className="hero-stat">
-                <span className="hero-stat-num">500+</span>
-                <span className="hero-stat-lbl">Verified homes</span>
-              </div>
-              <div className="hero-stat">
-                <span className="hero-stat-num">Ops</span>
-                <span className="hero-stat-lbl">Routed visits</span>
-              </div>
-              <div className="hero-stat">
-                <span className="hero-stat-num">1 hr</span>
-                <span className="hero-stat-lbl">Urgent support</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Desktop stat card — hidden on mobile via CSS */}
-          <div className="hero-card desktop-only">
-            <div className="stat-card">
-              <span>Discover</span>
-              <strong>Search</strong>
-              <p>By locality, society, and budget.</p>
-            </div>
-            <div className="stat-card">
-              <span>Shortlist</span>
-              <strong>Save</strong>
-              <p>Properties and come back later.</p>
-            </div>
-            <div className="stat-card">
-              <span>Coordinate</span>
-              <strong>Visit</strong>
-              <p>Routed through Denner Ops.</p>
-            </div>
+    <div className="rd-page">
+      <header className={`rd-hero${heroIn ? ' in' : ''}`}>
+        <BgVideo />
+        <div className="rd-hero-copy">
+          <h1>
+            <span className="rd-line"><span>Find your</span></span>
+            <span className="rd-line"><span><em>next home</em></span></span>
+            <span className="rd-line"><span>in Pune.</span></span>
+          </h1>
+          <div className="rd-ctas rd-fade d2">
+            <Link to="/properties" className="rd-btn rd-btn-main">Check available flats <span>→</span></Link>
           </div>
         </div>
-      </section>
+        <div className="rd-stats rd-fade d2">
+          <div className="rd-stat"><b>100%</b><small>Verified listings</small></div>
+          <div className="rd-stat"><b>1–3 BHK</b><small>Flats to choose from</small></div>
+          <div className="rd-stat"><b>12+</b><small>Areas across Pune</small></div>
+          <div className="rd-scroll-cue">Scroll ↓</div>
+        </div>
+      </header>
 
-      {/* ── Features ─────────────────────────────────────────── */}
-      <section className="section soft">
-        <div className="container">
-          <p className="eyebrow" style={{ marginBottom: 12 }}>Why Denner</p>
-          <h2 className="section-heading">A cleaner way to rent</h2>
-
-          {/* Mobile: numbered list rows. Desktop: 3-col cards via CSS */}
-          <div className="features-list desktop-only">
-            <article className="info-card">
-              <h3>Verified listings</h3>
-              <p>Every property on Denner is checked and verified before it goes live.</p>
-            </article>
-            <article className="info-card">
-              <h3>Ops-routed visits</h3>
-              <p>Visit requests go through Denner Ops — no direct owner cold-calls.</p>
-            </article>
-            <article className="info-card">
-              <h3>Priority support</h3>
-              <p>Urgent relocation? Our team fast-tracks your search within the hour.</p>
-            </article>
-          </div>
-
-          <div className="features-rows mobile-only">
-            <div className="feature-row">
-              <span className="feature-num">1</span>
-              <div>
-                <h3 className="feature-row-title">Verified listings</h3>
-                <p className="feature-row-body">Every property is checked before it goes live.</p>
-              </div>
-            </div>
-            <div className="feature-row">
-              <span className="feature-num">2</span>
-              <div>
-                <h3 className="feature-row-title">Ops-routed visits</h3>
-                <p className="feature-row-body">No cold-calls — all visits go through Denner Ops.</p>
-              </div>
-            </div>
-            <div className="feature-row">
-              <span className="feature-num">3</span>
-              <div>
-                <h3 className="feature-row-title">Priority support</h3>
-                <p className="feature-row-body">Fast-tracked search for urgent relocations.</p>
-              </div>
-            </div>
+      <section className="rd-inv" id="inventory">
+        <div className="rd-inv-head">
+          <h2 className="rd-h2">Featured <em className="rd-serif">inventory</em></h2>
+          <div className="rd-filters" role="group" aria-label="Filter by size">
+            {[['all', 'All'], ['2', '2 BHK'], ['3', '3 BHK']].map(([v, label]) => (
+              <button key={v} type="button" className={`rd-chip${bhk === v ? ' on' : ''}`} aria-pressed={bhk === v} onClick={() => setBhk(v)}>
+                {label}
+              </button>
+            ))}
           </div>
         </div>
-      </section>
 
-      {/* ── CTA band ─────────────────────────────────────────── */}
-      <section className="cta-band">
-        <div className="container cta-band-inner">
-          <div>
-            <h2 className="cta-band-heading">Ready to move in?</h2>
-            <p className="cta-band-sub">Browse verified properties. Coordinate visits through Denner.</p>
-          </div>
-          <Link to="/properties" className="cta-band-btn">Browse Properties</Link>
+        <div className="rd-hgrid" ref={gridRef}>
+          {loading && !properties.length
+            ? Array.from({ length: FEATURED }, (_, i) => <div key={i} className="rd-skel" />)
+            : featured.map((p) => <FlatCard key={p.id} property={p} variant="home" />)}
+          {!loading && !featured.length && (
+            <div className="rd-empty">
+              <b>{error ? 'Flats didn’t load' : 'No flats here yet'}</b>
+              {error ? 'Please refresh the page.' : 'Check back soon, or see all flats.'}
+            </div>
+          )}
         </div>
+
+        <div className="rd-all"><Link to="/properties" className="rd-btn rd-btn-ghost">View all flats →</Link></div>
       </section>
     </div>
   );

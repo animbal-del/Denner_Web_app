@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import AuthCard from '../components/AuthCard.jsx';
-import AuthField from '../components/AuthField.jsx';
+import AuthLayout, { PasswordInput } from '../components/redesign/AuthLayout.jsx';
 import { useAuth } from '../services/authService.jsx';
 import { track } from '../lib/analytics.js';
 
@@ -87,150 +86,105 @@ export default function SignupPage() {
     }
   }
 
-  /* ── Success screen ─────────────────────────────────────── */
-  if (success) {
+  const rules = [
+    ['len', 'Min 8 chars', (v) => v.length >= 8],
+    ['up', 'uppercase', (v) => /[A-Z]/.test(v)],
+    ['lo', 'lowercase', (v) => /[a-z]/.test(v)],
+    ['num', 'number', (v) => /\d/.test(v)],
+  ];
+  const isPartner = role === 'partner';
+
+  function Field({ id, label, k, className = 'rd-fld', ...rest }) {
     return (
-      <div className="page-shell narrow">
-        <div className="signup-success-screen">
-          <div className="signup-success-check">
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-              <circle cx="14" cy="14" r="13" stroke="currentColor" strokeWidth="1.5"/>
-              <path d="M8 14.5l4.5 4.5 7.5-8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </div>
-          <h2 className="signup-success-heading">Account created</h2>
-          <p className="signup-success-body">
-            Welcome to Denner{form.fullName ? `, ${form.fullName.split(' ')[0]}` : ''}.<br />
-            Taking you to your dashboard…
-          </p>
-          <div className="signup-success-dots">
-            <span/><span/><span/>
-          </div>
-        </div>
+      <div className={className}>
+        <label htmlFor={id}>{label}</label>
+        <input
+          className={`rd-inp${fieldErrors[k] ? ' bad' : ''}`}
+          id={id}
+          value={form[k]}
+          onChange={(e) => update(k, e.target.value)}
+          aria-invalid={fieldErrors[k] ? true : undefined}
+          {...rest}
+        />
+        {fieldErrors[k] && <div className="rd-err">{fieldErrors[k]}</div>}
       </div>
     );
   }
 
-  /* ── Form ───────────────────────────────────────────────── */
   return (
-    <div className="page-shell narrow">
-      <AuthCard
-        title="Create account"
-        subtitle="Browse verified homes, shortlist, and coordinate visits — all through Denner."
-      >
-        {/* Role tabs */}
-        <div className="toggle-row">
-          <button type="button" className={`toggle${role === 'user' ? ' active' : ''}`} onClick={() => setRole('user')}>Renter</button>
-          <button type="button" className={`toggle${role === 'partner' ? ' active' : ''}`} onClick={() => setRole('partner')}>Owner / Broker</button>
+    <AuthLayout
+      start={40}
+      quote="Find your"
+      accent="perfect flat."
+      blurb="Browse verified homes, shortlist, and coordinate visits — all through Denner."
+    >
+      {success ? (
+        <div className="rd-af rd-done-box rd-up" role="status">
+          <i>✓</i>
+          <h3>Account created</h3>
+          <p>Welcome to Denner{form.fullName ? `, ${form.fullName.split(' ')[0]}` : ''}. Taking you {location.state?.from && role === 'user' ? 'back' : 'to your dashboard'}…</p>
         </div>
-
-        <form onSubmit={handleSubmit} className="form-stack" noValidate>
-          {/* Name */}
-          <AuthField
-            label="Full name"
-            value={form.fullName}
-            onChange={e => update('fullName', e.target.value)}
-            error={fieldErrors.fullName}
-            autoComplete="name"
-          />
-
-          {/* Email */}
-          <AuthField
-            label="Email"
-            type="email"
-            value={form.email}
-            onChange={e => update('email', e.target.value)}
-            error={fieldErrors.email}
-            autoComplete="email"
-          />
-
-          {/* Password */}
-          <div>
-            <AuthField
-              label="Password"
-              type="password"
-              value={form.password}
-              onChange={e => update('password', e.target.value)}
-              error={fieldErrors.password}
-              autoComplete="new-password"
-            />
-            {!form.password && !fieldErrors.password && (
-              <p className="field-hint">Min 8 chars · uppercase · lowercase · number</p>
-            )}
+      ) : (
+        <form className="rd-af rd-up" onSubmit={handleSubmit} noValidate>
+          <h1>Create account</h1>
+          <p className="lead">Browse verified homes, shortlist, and coordinate visits — all through Denner.</p>
+          <div className="rd-seg" role="tablist" aria-label="Account type">
+            <button type="button" role="tab" aria-selected={!isPartner} className={!isPartner ? 'on' : ''} onClick={() => setRole('user')}>Renter</button>
+            <button type="button" role="tab" aria-selected={isPartner} className={isPartner ? 'on' : ''} onClick={() => setRole('partner')}>Owner / Broker</button>
           </div>
 
-          {/* Phone row — code + number side by side */}
-          <div className="phone-row">
-            <div className="phone-row-code">
-              <AuthField
-                label="Code"
-                value={form.countryCode}
-                onChange={e => update('countryCode', e.target.value)}
-                error={fieldErrors.countryCode}
-                autoComplete="tel-country-code"
-                inputMode="tel"
-              />
+          {Field({ id: 'nm', label: 'Full name', k: 'fullName', autoComplete: 'name' })}
+          {Field({ id: 'em', label: 'Email', k: 'email', type: 'email', autoComplete: 'email' })}
+
+          <div className="rd-fld">
+            <label htmlFor="pw">Password</label>
+            <PasswordInput id="pw" autoComplete="new-password" value={form.password} onChange={(e) => update('password', e.target.value)} invalid={Boolean(fieldErrors.password)} />
+            <div className="rd-hint">
+              {rules.map(([k, label, test], i) => (
+                <span key={k}>{i > 0 && <span aria-hidden="true">· </span>}<span className={test(form.password) ? 'ok' : ''}>{label}</span></span>
+              ))}
             </div>
-            <div className="phone-row-number">
-              <AuthField
-                label="Phone number"
-                value={form.phoneNumber}
-                onChange={e => update('phoneNumber', e.target.value.replace(/\D/g, ''))}
-                error={fieldErrors.phoneNumber}
-                autoComplete="tel-national"
-                inputMode="numeric"
-              />
+            {fieldErrors.password && <div className="rd-err">{fieldErrors.password}</div>}
+          </div>
+
+          <div className="rd-fld rd-phrow">
+            <div>
+              <label htmlFor="cc">Code</label>
+              <input className={`rd-inp${fieldErrors.countryCode ? ' bad' : ''}`} id="cc" value={form.countryCode} onChange={(e) => update('countryCode', e.target.value)} autoComplete="tel-country-code" inputMode="tel" />
+              {fieldErrors.countryCode && <div className="rd-err">{fieldErrors.countryCode}</div>}
+            </div>
+            <div>
+              <label htmlFor="tel">Phone number</label>
+              <input className={`rd-inp${fieldErrors.phoneNumber ? ' bad' : ''}`} id="tel" value={form.phoneNumber} onChange={(e) => update('phoneNumber', e.target.value.replace(/\D/g, ''))} autoComplete="tel-national" inputMode="numeric" maxLength={15} />
+              {fieldErrors.phoneNumber && <div className="rd-err">{fieldErrors.phoneNumber}</div>}
             </div>
           </div>
 
-          {/* City + State */}
-          {role === 'user' && (
-            <div className="two-col-row">
-              <AuthField label="City" value={form.city} onChange={e => update('city', e.target.value)} error={fieldErrors.city} />
-              <AuthField label="State" value={form.state} onChange={e => update('state', e.target.value)} />
-            </div>
-          )}
-
-          {/* Partner fields */}
-          {role === 'partner' && (
+          {isPartner && (
             <>
-              <div className="toggle-row compact" style={{ marginBottom: 0 }}>
-                <button type="button" className={`toggle${form.partnerType === 'owner' ? ' active' : ''}`} onClick={() => update('partnerType', 'owner')}>Owner</button>
-                <button type="button" className={`toggle${form.partnerType === 'broker' ? ' active' : ''}`} onClick={() => update('partnerType', 'broker')}>Broker</button>
+              <div className="rd-fld">
+                <span className="rd-lbl2">I am a</span>
+                <div className="rd-seg sm" role="group" aria-label="I am a">
+                  <button type="button" aria-pressed={form.partnerType === 'owner'} className={form.partnerType === 'owner' ? 'on' : ''} onClick={() => update('partnerType', 'owner')}>Owner</button>
+                  <button type="button" aria-pressed={form.partnerType === 'broker'} className={form.partnerType === 'broker' ? 'on' : ''} onClick={() => update('partnerType', 'broker')}>Broker</button>
+                </div>
               </div>
-              <AuthField label="Company name (optional)" value={form.companyName} onChange={e => update('companyName', e.target.value)} />
-              <div className="two-col-row">
-                <AuthField label="City" value={form.city} onChange={e => update('city', e.target.value)} error={fieldErrors.city} />
-                <AuthField label="Locality" value={form.locality} onChange={e => update('locality', e.target.value)} error={fieldErrors.locality} />
-              </div>
+              {Field({ id: 'co', label: 'Company name (optional)', k: 'companyName', autoComplete: 'organization' })}
             </>
           )}
 
-          {/* Server error */}
-          {serverError && (
-            <div className="signup-server-error" role="alert">
-              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
-                <circle cx="7.5" cy="7.5" r="6.5" stroke="currentColor" strokeWidth="1.3"/>
-                <path d="M7.5 4.5v4M7.5 10.5v.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
-              {serverError}
-            </div>
-          )}
+          <div className="rd-two">
+            {Field({ id: 'city', label: 'City', k: 'city', autoComplete: 'address-level2' })}
+            {isPartner
+              ? Field({ id: 'locl', label: 'Locality', k: 'locality' })
+              : Field({ id: 'state', label: 'State', k: 'state', autoComplete: 'address-level1' })}
+          </div>
 
-          <button type="submit" className="button primary full" disabled={submitting} style={{ borderRadius: 'var(--radius-card)', minHeight: 52 }}>
-            {submitting ? (
-              <span className="btn-spinner-row">
-                <span className="btn-spinner" />
-                Creating account…
-              </span>
-            ) : 'Create account'}
-          </button>
+          {serverError && <div className="rd-err" role="alert">{serverError}</div>}
+          <button className="rd-sub" type="submit" disabled={submitting}>{submitting ? 'Creating account…' : 'Create account'}</button>
+          <p className="rd-alt">Already have an account? <Link to="/login" state={location.state}>Log in</Link></p>
         </form>
-
-        <p className="auth-footnote">
-          Already have an account? <Link to="/login" state={location.state}>Log in</Link>
-        </p>
-      </AuthCard>
-    </div>
+      )}
+    </AuthLayout>
   );
 }

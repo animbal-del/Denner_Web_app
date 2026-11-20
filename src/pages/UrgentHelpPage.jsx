@@ -5,7 +5,7 @@ import { useAuth } from '../services/authService.jsx';
 import { createUrgentHelpRequest, buildEmptyUrgentHelp } from '../services/urgentHelpService.js';
 import { getAvailableLocalities, getRentBoundsForLocalities } from '../services/publicPropertiesService.js';
 import SearchableSelect from '../components/SearchableSelect.jsx';
-import DualRangeSlider from '../components/DualRangeSlider.jsx';
+import BgVideo from '../components/redesign/BgVideo.jsx';
 
 function normalizeLocalities(values = []) {
   return [...new Set((values || []).map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 3);
@@ -37,6 +37,7 @@ export default function UrgentHelpPage() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [sent, setSent] = useState(false);
 
   const selectedLocalities = useMemo(() => normalizeLocalities(form.preferred_localities), [form.preferred_localities]);
 
@@ -107,11 +108,14 @@ export default function UrgentHelpPage() {
       return;
     }
 
+    if (!String(form.name_snapshot || '').trim()) { setError('Enter your name.'); return; }
+    if (String(form.phone_snapshot || '').replace(/\D/g, '').length < 10) { setError('Enter a 10-digit phone number.'); return; }
     const finalLocalities = normalizeLocalities(form.preferred_localities);
     if (!finalLocalities.length) {
       setError('Select at least one preferred locality.');
       return;
     }
+    if (!form.consent_to_contact) { setError('Please tick the consent box so Ops can reach you.'); return; }
 
     try {
       setSubmitting(true);
@@ -122,6 +126,7 @@ export default function UrgentHelpPage() {
         rent_max: budgetRange.max,
       });
       setMessage('Urgent help request sent.');
+      setSent(true);
       setForm({ ...buildEmptyUrgentHelp(profile), preferred_localities: ['', '', ''] });
       setBudgetRange(bounds.max ? { min: bounds.min, max: bounds.max } : { min: 0, max: 0 });
     } catch (err) {
@@ -132,126 +137,106 @@ export default function UrgentHelpPage() {
   }
 
   const sliderEnabled = Boolean(bounds.max);
-  const denominator = Math.max(bounds.max - bounds.min, 1);
+  const span = Math.max(bounds.max - bounds.min, 1);
+  const lo = sliderEnabled ? budgetRange.min : 0;
+  const hi = sliderEnabled ? budgetRange.max : 0;
+  const today = new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="page-shell">
-      <section className="container urgent-hero-card compact-hero-card polished-card">
-        <p className="eyebrow">Priority support</p>
-        <h1 className="page-title">Need a home in the next 5 days?</h1>
-        <p>Share your core requirements and let Denner Ops prioritise your search.</p>
-        {!isAuthenticated ? (
-          <div className="hero-actions">
-            <Link to="/login" state={{ from: location.pathname }} className="button primary">Login</Link>
-            <Link to="/signup" state={{ from: location.pathname }} className="button ghost">Create account</Link>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="container urgent-grid">
-        <form className="dashboard-card profile-form-card polished-card" onSubmit={handleSubmit}>
-          <div className="section-title-row compact">
-            <div>
-              <h3>Priority housing form</h3>
-              <p>Keep it simple. Ops will take it from here.</p>
+    <div className="rd-page">
+      <header className="rd-uhero">
+        <BgVideo start={70} />
+        <div className="in">
+          <h1>Need a home in the <span>next 5 days?</span></h1>
+          <p>Share your core requirements and let Denner Ops prioritise your search.</p>
+          {!isAuthenticated && (
+            <div className="rd-uacts">
+              <Link to="/login" state={{ from: location.pathname }} className="a1">Login</Link>
+              <Link to="/signup" state={{ from: location.pathname }} className="a2">Create account</Link>
             </div>
-          </div>
+          )}
+        </div>
+      </header>
 
-          <div className="form-stack">
-            <div className="split-fields">
-              <label className="field"><span>Name</span><input value={form.name_snapshot} onChange={(e) => updateField('name_snapshot', e.target.value)} /></label>
-              <label className="field"><span>Phone</span><input value={form.phone_snapshot} onChange={(e) => updateField('phone_snapshot', e.target.value)} /></label>
+      <div className="rd-uwrap">
+        <div className="rd-ucard">
+          {sent ? (
+            <div className="rd-done-box" role="status">
+              <i>✓</i>
+              <h3>Request received</h3>
+              <p>It’s in the Denner Ops urgent queue. Expect a quick callback or WhatsApp follow-up.</p>
+              <button type="button" className="rd-sub" style={{ marginTop: 24 }} onClick={() => { setSent(false); setMessage(''); }}>Send another request</button>
             </div>
+          ) : (
+            <form onSubmit={handleSubmit} noValidate>
+              <h2>Priority housing form</h2>
+              <p className="s">Keep it simple. Ops will take it from here.</p>
+              <div className="rd-nm">
+                <div className="rd-fld"><label htmlFor="u-nm">Name</label><input className="rd-inp" id="u-nm" autoComplete="name" value={form.name_snapshot} onChange={(e) => updateField('name_snapshot', e.target.value)} /></div>
+                <div className="rd-fld"><label htmlFor="u-ph">Phone</label><input className="rd-inp" id="u-ph" inputMode="tel" autoComplete="tel" value={form.phone_snapshot} onChange={(e) => updateField('phone_snapshot', e.target.value.replace(/[^\d+\s]/g, ''))} /></div>
+              </div>
+              <div className="rd-two">
+                <div className="rd-fld"><label htmlFor="u-city">City</label><input className="rd-inp" id="u-city" autoComplete="address-level2" value={form.city} onChange={(e) => updateField('city', e.target.value)} /></div>
+                <div className="rd-fld"><label htmlFor="u-st">State</label><input className="rd-inp" id="u-st" autoComplete="address-level1" value={form.state} onChange={(e) => updateField('state', e.target.value)} /></div>
+              </div>
+              <div className="rd-three">
+                {[0, 1, 2].map((index) => {
+                  const currentValue = (form.preferred_localities || ['', '', ''])[index] || '';
+                  const selectedElsewhere = new Set((form.preferred_localities || []).filter((item, i) => item && i !== index));
+                  const options = localityOptions.filter((o) => o === currentValue || !selectedElsewhere.has(o));
+                  return (
+                    <div className="rd-fld" key={index}>
+                      <span className="rd-lbl2">Preferred locality {index + 1}</span>
+                      <SearchableSelect
+                        value={currentValue}
+                        options={options}
+                        onChange={(next) => updateLocality(index, next)}
+                        placeholder={loadingOptions ? 'Loading localities' : 'Search locality'}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
 
-            <div className="split-fields">
-              <label className="field"><span>City</span><input value={form.city} onChange={(e) => updateField('city', e.target.value)} /></label>
-              <label className="field"><span>State</span><input value={form.state} onChange={(e) => updateField('state', e.target.value)} /></label>
-            </div>
-
-            <div className="profile-locality-grid compact-grid">
-              {[0, 1, 2].map((index) => {
-                const currentValue = (form.preferred_localities || ['', '', ''])[index] || '';
-                const selectedElsewhere = new Set((form.preferred_localities || []).filter((item, itemIndex) => item && itemIndex !== index));
-                const options = localityOptions.filter((option) => option === currentValue || !selectedElsewhere.has(option));
-                return (
-                  <label className="field" key={index}>
-                    <span>Preferred locality {index + 1}</span>
-                    <SearchableSelect
-                      value={currentValue}
-                      options={options}
-                      onChange={(nextValue) => updateLocality(index, nextValue)}
-                      placeholder={loadingOptions ? 'Loading localities' : 'Search locality'}
-                      className="searchable-select-input"
-                      disabled={false}
-                    />
-                  </label>
-                );
-              })}
-            </div>
-
-            <div className="budget-filter-card modal-budget-card">
-              <div className="budget-filter-head">
-                <div>
-                  <strong>Budget range</strong>
-                  <p>The slider follows the lowest and highest rents across your selected localities.</p>
-                </div>
-                <div className="budget-range-values">
-                  <span>{formatCurrency(sliderEnabled ? budgetRange.min : 0)}</span>
-                  <span>{formatCurrency(sliderEnabled ? budgetRange.max : 0)}</span>
+              <div className="rd-fld">
+                <div className="rd-bud-top"><span className="rd-lbl2" style={{ margin: 0 }}>Budget range</span><span className="rd-bud-val">{formatCurrency(lo)} – {formatCurrency(hi)}</span></div>
+                <p className="rd-small">The slider follows the lowest and highest rents across your selected localities.</p>
+                {sliderEnabled && (
+                  <div className="rd-range">
+                    <div className="track" />
+                    <div className="fill" style={{ left: `${((lo - bounds.min) / span) * 100}%`, width: `${((hi - lo) / span) * 100}%` }} />
+                    <input type="range" min={bounds.min} max={bounds.max} step="1000" value={lo} onChange={(e) => updateBudgetMin(Math.min(Number(e.target.value), hi))} aria-label="Min budget slider" />
+                    <input type="range" min={bounds.min} max={bounds.max} step="1000" value={hi} onChange={(e) => updateBudgetMax(Math.max(Number(e.target.value), lo))} aria-label="Max budget slider" />
+                  </div>
+                )}
+                <div className="rd-two" style={{ marginTop: 12 }}>
+                  <div><label className="rd-lbl2" htmlFor="u-bmin">Min budget</label><input className="rd-inp" id="u-bmin" type="number" step="1000" value={lo} disabled={!sliderEnabled} onChange={(e) => updateBudgetMin(Number(e.target.value || 0))} /></div>
+                  <div><label className="rd-lbl2" htmlFor="u-bmax">Max budget</label><input className="rd-inp" id="u-bmax" type="number" step="1000" value={hi} disabled={!sliderEnabled} onChange={(e) => updateBudgetMax(Number(e.target.value || 0))} /></div>
                 </div>
               </div>
 
-              <div className="budget-manual-inputs">
-                <label className="field">
-                  <span>Min budget</span>
-                  <input type="number" min={sliderEnabled ? bounds.min : 0} max={sliderEnabled ? budgetRange.max : 0} step="500" value={sliderEnabled ? budgetRange.min : 0} onChange={(e) => updateBudgetMin(Number(e.target.value || 0))} disabled={!sliderEnabled} />
-                </label>
-                <label className="field">
-                  <span>Max budget</span>
-                  <input type="number" min={sliderEnabled ? budgetRange.min : 0} max={sliderEnabled ? bounds.max : 0} step="500" value={sliderEnabled ? budgetRange.max : 0} onChange={(e) => updateBudgetMax(Number(e.target.value || 0))} disabled={!sliderEnabled} />
-                </label>
-              </div>
+              <div className="rd-fld"><label htmlFor="u-by">Need a place by</label><input className="rd-inp" id="u-by" type="date" min={today} value={form.required_by_date} onChange={(e) => updateField('required_by_date', e.target.value)} /></div>
+              <div className="rd-fld"><label htmlFor="u-nt">Anything important to know?</label><textarea className="rd-inp" id="u-nt" value={form.notes} onChange={(e) => updateField('notes', e.target.value)} /></div>
+              <label className="rd-consent">
+                <input type="checkbox" className="rd-check" checked={form.consent_to_contact} onChange={(e) => updateField('consent_to_contact', e.target.checked)} />
+                I consent to a quick call or WhatsApp follow-up from Denner.
+              </label>
+              {error && <div className="rd-err" role="alert">{error}</div>}
+              <button className="rd-sub" type="submit" disabled={submitting}>{submitting ? 'Sending…' : isAuthenticated ? 'Send request' : 'Log in to send request'}</button>
+            </form>
+          )}
+        </div>
 
-              {sliderEnabled && (
-                <DualRangeSlider
-                  min={bounds.min}
-                  max={bounds.max}
-                  valueMin={budgetRange.min}
-                  valueMax={budgetRange.max}
-                  onMinChange={updateBudgetMin}
-                  onMaxChange={updateBudgetMax}
-                  formatValue={formatCurrency}
-                  step={500}
-                />
-              )}
-            </div>
-
-            <label className="field"><span>Need a place by</span><input type="date" value={form.required_by_date} onChange={(e) => updateField('required_by_date', e.target.value)} /></label>
-            <label className="field"><span>Anything important to know?</span><textarea value={form.notes} onChange={(e) => updateField('notes', e.target.value)} rows="4" /></label>
-
-            <label className="consent-card compact-consent">
-              <input type="checkbox" checked={form.consent_to_contact} onChange={(e) => updateField('consent_to_contact', e.target.checked)} />
-              <span>I consent to a quick call or WhatsApp follow-up from Denner.</span>
-            </label>
-
-            <button type="submit" className="button primary" disabled={submitting || !form.consent_to_contact}>
-              {submitting ? 'Submitting…' : 'Send request'}
-            </button>
-            {message ? <div className="form-feedback success">{message}</div> : null}
-            {error ? <div className="form-feedback error">{error}</div> : null}
-          </div>
-        </form>
-
-        <aside className="dashboard-card urgent-side-card polished-card">
-          <div className="eyebrow">What happens next</div>
+        <aside className="rd-ucard rd-next">
+          <h2>What happens next</h2>
           <h3>Fast-tracked for the Ops team.</h3>
-          <div className="steps-card compact-steps">
-            <div><strong>1</strong><span>Your priorities reach the urgent queue</span></div>
-            <div><strong>2</strong><span>Denner checks matching inventory first</span></div>
-            <div><strong>3</strong><span>You get a quick callback or WhatsApp follow-up</span></div>
-          </div>
+          <ol>
+            <li><b>1</b>Your priorities reach the urgent queue</li>
+            <li><b>2</b>Denner checks matching inventory first</li>
+            <li><b>3</b>You get a quick callback or WhatsApp follow-up</li>
+          </ol>
         </aside>
-      </section>
+      </div>
     </div>
   );
 }

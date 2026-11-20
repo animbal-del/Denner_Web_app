@@ -1,9 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import AuthCard from '../components/AuthCard.jsx';
-import AuthField from '../components/AuthField.jsx';
 import { useAuth } from '../services/authService.jsx';
 import { track } from '../lib/analytics.js';
+import AuthLayout, { PasswordInput } from '../components/redesign/AuthLayout.jsx';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -23,10 +22,12 @@ export default function LoginPage() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setSubmitting(true);
     setError('');
+    if (!/^\S+@\S+\.\S+$/.test(email.trim())) { setError('Enter a valid email.'); return; }
+    if (!password) { setError('Enter your password.'); return; }
+    setSubmitting(true);
     try {
-      await login({ email, password, expectedRole: role });
+      await login({ email: email.trim(), password, expectedRole: role });
       track('login', { method: 'email' });
       navigate(redirectPath, { replace: true });
     } catch (err) {
@@ -37,27 +38,31 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="page-shell narrow">
-      <AuthCard
-        title="Log in"
-        subtitle="Choose the right account type before logging in so we can route you correctly."
-      >
-        <div className="toggle-row">
-          <button type="button" className={`toggle ${role === 'user' ? 'active' : ''}`} onClick={() => setRole('user')}>Renter User</button>
-          <button type="button" className={`toggle ${role === 'partner' ? 'active' : ''}`} onClick={() => setRole('partner')}>Owner / Broker</button>
+    <AuthLayout
+      start={20}
+      quote="Move in with trust,"
+      accent="not tension."
+      blurb="Browse verified homes, shortlist them, and coordinate visits — all in one place."
+    >
+      <form className="rd-af rd-up" onSubmit={handleSubmit} noValidate>
+        <h1>Log in</h1>
+        <p className="lead">Choose the right account type before logging in so we can route you correctly.</p>
+        <div className="rd-seg" role="tablist" aria-label="Account type">
+          <button type="button" role="tab" aria-selected={role === 'user'} className={role === 'user' ? 'on' : ''} onClick={() => setRole('user')}>Renter User</button>
+          <button type="button" role="tab" aria-selected={role === 'partner'} className={role === 'partner' ? 'on' : ''} onClick={() => setRole('partner')}>Owner / Broker</button>
         </div>
-        <form onSubmit={handleSubmit} className="form-stack">
-          <AuthField label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          <AuthField label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-          {error ? <div className="form-error">{error}</div> : null}
-          <button type="submit" className="button primary full" disabled={submitting}>
-            {submitting ? 'Logging in...' : 'Login'}
-          </button>
-        </form>
-        <p className="auth-footnote">
-          Don’t have an account? <Link to="/signup" state={location.state}>Create one</Link>
-        </p>
-      </AuthCard>
-    </div>
+        <div className="rd-fld">
+          <label htmlFor="em">Email</label>
+          <input className="rd-inp" id="em" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        </div>
+        <div className="rd-fld">
+          <label htmlFor="pw">Password</label>
+          <PasswordInput id="pw" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        </div>
+        {error && <div className="rd-err" role="alert">{error}</div>}
+        <button className="rd-sub" type="submit" disabled={submitting}>{submitting ? 'Logging in…' : 'Login'}</button>
+        <p className="rd-alt">Don’t have an account? <Link to="/signup" state={location.state}>Create one</Link></p>
+      </form>
+    </AuthLayout>
   );
 }
